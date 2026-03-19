@@ -1,0 +1,310 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"math/rand"
+	"net"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/segmentio/kafka-go"
+)
+
+// --- Gossip Structs ---
+
+type NodeState struct {
+	ID         string `json:"id"`
+	Address    string `json:"address"`
+	Data       string `json:"data"`
+	Generation int64  `json:"generation"`
+	Version    int64  `json:"version"`
+	Timestamp  int64  `json:"timestamp"` // Unix nanoseconds
+}
+
+type GossipMessage struct {
+	Type    string               `json:"type"`     // "PUSH", "PULL_REQ", or "PULL_RESP"
+	ReplyTo string               `json:"reply_to"` // Only used for PULL_REQ
+	State   map[string]NodeState `json:"state"`    // Used for PUSH and PULL_RESP
+}
+
+// --- Kafka Structs ---
+
+type GossipDigest struct {
+	Generation int64  `json:"generation"`
+	Version    int64  `json:"version"`
+	Timestamp  string `json:"timestamp"` // ISO-8601 format
+	IsAlive    bool   `json:"isAlive"`
+}
+
+type KafkaEvent struct {
+	NodeAddress  string       `json:"nodeAddress"`
+	GossipDigest GossipDigest `json:"gossipDigest"`
+}
+
+// --- Node Definition ---
+
+type Node struct {
+	ID          string
+	Address     string
+	StateMap    map[string]NodeState
+	stateLock   sync.RWMutex
+	kafkaWriter *kafka.Writer
+}
+
+func NewNode(id, address string, initialPeers []string, kafkaBroker, kafkaTopic string) *Node {
+	n := &Node{
+		ID:       id,
+		Address:  address,
+		StateMap: make(map[string]NodeState),
+	}
+
+	if kafkaBroker != "" && kafkaTopic != "" {
+		n.kafkaWriter = &kafka.Writer{
+			Addr:     kafka.TCP(kafkaBroker),
+			Topic:    kafkaTopic,
+			Balancer: &kafka.LeastBytes{},
+		}
+		fmt.Printf("📡 [%s] Kafka producer initialized (Broker: %s, Topic: %s)\n", n.ID, kafkaBroker, kafkaTopic)
+	}
+
+	n.StateMap[id] = NodeState{
+		ID:         id,
+		Address:    address,
+		Data:       "",
+		Generation: time.Now().UnixNano(),
+		Version:    0,
+		Timestamp:  time.Now().UnixNano(),
+	}
+
+	for _, peerAddr := range initialPeers {
+		if peerAddr != "" {
+			n.StateMap[peerAddr] = NodeState{Address: peerAddr, Version: -1}
+		}
+	}
+
+	return n
+}
+
+func (n *Node) UpdateOwnData(newData string) {
+	n.stateLock.Lock()
+	defer n.stateLock.Unlock()
+
+	state := n.StateMap[n.ID]
+	state.Data = newData
+	state.Version++
+	state.Timestamp = time.Now().UnixNano()
+	n.StateMap[n.ID] = state
+
+	fmt.Printf("🚀 [%s] Updated own state to: '%s' (v%d)\n", n.ID, newData, state.Version)
+}
+
+// StartListening handles PUSH, PULL_REQ, and PULL_RESP
+func (n *Node) StartListening() {
+	addr, _ := net.ResolveUDPAddr("udp", n.Address)
+	conn, _ := net.ListenUDP("udp", addr)
+	defer conn.Close()
+
+	fmt.Printf("🎧 [%s] Listening for gossip on %s...\n", n.ID, n.Address)
+	buffer := make([]byte, 8192)
+
+	for {
+		length, _, err := conn.ReadFromUDP(buffer)
+		if err != nil { continue }
+
+		var msg GossipMessage
+		if err := json.Unmarshal(buffer[:length], &msg); err != nil { continue }
+
+		switch msg.Type {
+		case "PUSH":
+			n.mergeState(msg.State)
+		case "PULL_REQ":
+			n.handlePullRequest(msg.ReplyTo)
+		case "PULL_RESP":
+			n.mergeState(msg.State)
+		}
+	}
+}
+
+// handlePullRequest packages the node's state and sends it back to the requester
+func (n *Node) handlePullRequest(replyToAddress string) {
+	n.stateLock.Lock()
+	
+	// Passive Peer Discovery
+	found := false
+	for _, state := range n.StateMap {
+		if state.Address == replyToAddress {
+			found = true
+			break
+		}
+	}
+	if !found {
+		n.StateMap[replyToAddress] = NodeState{Address: replyToAddress, Version: -1}
+	}
+
+	resp := GossipMessage{
+		Type:  "PULL_RESP",
+		State: n.StateMap,
+	}
+	payload, _ := json.Marshal(resp)
+	n.stateLock.Unlock()
+
+	n.sendUDP(replyToAddress, payload)
+	fmt.Printf("📤 [%s] Sent PULL_RESP to %s\n", n.ID, replyToAddress)
+}
+
+// mergeState compares incoming states against local states and publishes to Kafka
+func (n *Node) mergeState(incoming map[string]NodeState) {
+	n.stateLock.Lock()
+	defer n.stateLock.Unlock()
+
+	var newKafkaEvents []KafkaEvent
+
+	for id, incState := range incoming {
+		if id == n.ID { continue }
+
+		localState, exists := n.StateMap[id]
+		isUpdated := false
+
+		if !exists {
+			n.StateMap[id] = incState
+			fmt.Printf("🔍 [%s] Discovered NEW peer: %s at %s\n", n.ID, id, incState.Address)
+			isUpdated = true
+			if _, tempExists := n.StateMap[incState.Address]; tempExists && id != incState.Address {
+				delete(n.StateMap, incState.Address)
+			}
+		} else {
+			isNewerGen := incState.Generation > localState.Generation
+			isNewerVer := (incState.Generation == localState.Generation) && (incState.Version > localState.Version)
+
+			if isNewerGen || isNewerVer {
+				n.StateMap[id] = incState
+				fmt.Printf("🔄 [%s] Updated state for %s: '%s' (v%d)\n", n.ID, id, incState.Data, incState.Version)
+				isUpdated = true
+				if _, tempExists := n.StateMap[incState.Address]; tempExists && id != incState.Address {
+					delete(n.StateMap, incState.Address)
+				}
+			}
+		}
+
+		if isUpdated && n.kafkaWriter != nil {
+			ts := time.Unix(0, incState.Timestamp).UTC().Format("2006-01-02T15:04:05.000Z")
+			newKafkaEvents = append(newKafkaEvents, KafkaEvent{
+				NodeAddress: incState.Address,
+				GossipDigest: GossipDigest{
+					Generation: incState.Generation,
+					Version:    incState.Version,
+					Timestamp:  ts,
+					IsAlive:    true,
+				},
+			})
+		}
+	}
+
+	if len(newKafkaEvents) > 0 && n.kafkaWriter != nil {
+		payload, _ := json.Marshal(newKafkaEvents)
+		err := n.kafkaWriter.WriteMessages(context.Background(), kafka.Message{
+			Value: payload,
+		})
+		if err != nil {
+			fmt.Printf("⚠️ [%s] Failed to write to Kafka: %v\n", n.ID, err)
+		} else {
+			fmt.Printf("📨 [%s] Published %d update(s) to Kafka topic.\n", n.ID, len(newKafkaEvents))
+		}
+	}
+}
+
+// StartGossiping randomly chooses between PUSH and PULL every interval
+func (n *Node) StartGossiping(interval time.Duration) {
+	rand.Seed(time.Now().UnixNano())
+
+	for {
+		time.Sleep(interval)
+
+		n.stateLock.RLock()
+		var peerAddrs []string
+		for id, state := range n.StateMap {
+			if id != n.ID && state.Address != "" {
+				peerAddrs = append(peerAddrs, state.Address)
+			}
+		}
+		
+		// Decide between Push (true) or Pull (false)
+		isPush := rand.Intn(2) == 0 
+		
+		// Pre-marshal the payload depending on the choice
+		var msg GossipMessage
+		if isPush {
+			msg = GossipMessage{Type: "PUSH", State: n.StateMap}
+		} else {
+			msg = GossipMessage{Type: "PULL_REQ", ReplyTo: n.Address}
+		}
+		payload, _ := json.Marshal(msg)
+		n.stateLock.RUnlock()
+
+		if len(peerAddrs) == 0 { continue }
+
+		// Shuffle and select up to 2 peers
+		rand.Shuffle(len(peerAddrs), func(i, j int) {
+			peerAddrs[i], peerAddrs[j] = peerAddrs[j], peerAddrs[i]
+		})
+		
+		numToSelect := 2
+		if len(peerAddrs) < 2 {
+			numToSelect = len(peerAddrs)
+		}
+
+		// Execute the selected action
+		for _, targetAddr := range peerAddrs[:numToSelect] {
+			if isPush {
+				fmt.Printf("🟢 [%s] Pushing state to %s\n", n.ID, targetAddr)
+			} else {
+				fmt.Printf("🪝 [%s] Sending PULL_REQ to %s\n", n.ID, targetAddr)
+			}
+			n.sendUDP(targetAddr, payload)
+		}
+	}
+}
+
+func (n *Node) sendUDP(targetAddress string, payload []byte) {
+	addr, err := net.ResolveUDPAddr("udp", targetAddress)
+	if err != nil { return }
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil { return }
+	defer conn.Close()
+	conn.Write(payload)
+}
+
+// go run main.go -id "Node-1" -addr "127.0.0.1:8001" -peers "127.0.0.1:8002" -kafka-broker "localhost:9092" -kafka-topic "gossip"
+
+func main() {
+	idFlag := flag.String("id", "Node-1", "Identifier for the node")
+	addrFlag := flag.String("addr", "127.0.0.1:8001", "Address for this node to listen on")
+	peersFlag := flag.String("peers", "", "Comma-separated list of peer addresses")
+	injectFlag := flag.String("inject", "", "Message to inject to start the gossip")
+	
+	kafkaBrokerFlag := flag.String("kafka-broker", "", "Kafka broker address (e.g., localhost:9092)")
+	kafkaTopicFlag := flag.String("kafka-topic", "gossip-events", "Kafka topic to publish to")
+
+	flag.Parse()
+
+	var initialPeers []string
+	if *peersFlag != "" {
+		initialPeers = strings.Split(*peersFlag, ",")
+	}
+
+	node := NewNode(*idFlag, *addrFlag, initialPeers, *kafkaBrokerFlag, *kafkaTopicFlag)
+
+	go node.StartListening()
+	go node.StartGossiping(3 * time.Second)
+
+	if *injectFlag != "" {
+		time.Sleep(1 * time.Second)
+		node.UpdateOwnData(*injectFlag)
+	}
+
+	select {}
+}
