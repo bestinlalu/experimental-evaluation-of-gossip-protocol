@@ -86,10 +86,12 @@ public class NodeManagerResource {
     @POST
     @Path("/kill")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response kill(@HeaderParam("port") Integer port) {
+    public Response kill(@HeaderParam("port") Integer port) throws JsonProcessingException {
         if (port == null) {
             return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(Map.of("error", "action-port header is required", "timestamp", Instant.now().toString()))
+                    .entity(mapper.writeValueAsString(
+                            Map.of("error", "action-port header is required", "timestamp", Instant.now().toString()))
+                    )
                     .build();
         }
 
@@ -97,14 +99,41 @@ public class NodeManagerResource {
 
         if (!wasKilled) {
             return Response.status(Response.Status.NOT_FOUND)
-                    .entity(Map.of("status", "No active node found on port " + port, "timestamp", Instant.now().toString()))
+                    .entity(mapper.writeValueAsString(
+                            Map.of("status", "No active node found on port " + port, "timestamp", Instant.now().toString()))
+                    )
                     .build();
         }
 
-        return Response.ok(Map.of(
+        return Response.ok().entity(mapper.writeValueAsString(
+                Map.of(
                 "status", "Gossip Node Killed",
                 "nodeId", "Node-" + port,
                 "timestamp", Instant.now().toString()
+                )
+        )).build();
+    }
+
+    @POST
+    @Path("/kill/all")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response killAll() throws JsonProcessingException {
+        boolean wasKilled = processManager.killAll();
+
+        if (!wasKilled) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .entity(mapper.writeValueAsString(
+                            Map.of("status", "No active node found", "timestamp", Instant.now().toString()))
+                    )
+                    .build();
+        }
+
+        return Response.ok(
+            mapper.writeValueAsString(
+                    Map.of(
+                            "status", "All Gossip Nodes Killed",
+                            "timestamp", Instant.now().toString()
+                    )
         )).build();
     }
 }

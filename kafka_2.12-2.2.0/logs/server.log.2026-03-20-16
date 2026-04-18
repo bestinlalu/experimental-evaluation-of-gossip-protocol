@@ -1,5 +1,0 @@
-[2026-03-20 16:46:56,573] WARN Unable to read additional data from client sessionid 0x10051d51b900002, likely client has closed socket (org.apache.zookeeper.server.NIOServerCnxn)
-[2026-03-20 16:46:57,257] INFO Closed socket connection for client /0:0:0:0:0:0:0:1:59698 which had sessionid 0x10051d51b900002 (org.apache.zookeeper.server.NIOServerCnxn)
-[2026-03-20 16:46:58,320] INFO Accepted socket connection from /0:0:0:0:0:0:0:1:60529 (org.apache.zookeeper.server.NIOServerCnxnFactory)
-[2026-03-20 16:46:58,374] INFO Client attempting to renew session 0x10051d51b900002 at /0:0:0:0:0:0:0:1:60529 (org.apache.zookeeper.server.ZooKeeperServer)
-[2026-03-20 16:46:58,553] INFO Established session 0x10051d51b900002 with negotiated timeout 6000 for client /0:0:0:0:0:0:0:1:60529 (org.apache.zookeeper.server.ZooKeeperServer)

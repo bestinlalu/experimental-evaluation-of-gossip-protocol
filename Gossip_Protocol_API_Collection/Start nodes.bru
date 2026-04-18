@@ -13,7 +13,7 @@ post {
 body:json {
   [
     {
-      "nodeAddress" : "localhost",
+      "host" : "localhost",
       "actionPort" : 9000,
       "managerPort" : 8082,
       "peers" : [],
@@ -22,7 +22,7 @@ body:json {
       "topic" : "gossip"
     },
     {
-      "nodeAddress" : "localhost",
+      "host" : "localhost",
       "actionPort" : 9001,
       "managerPort" : 8082,
       "peers" : ["localhost:9000"],
@@ -31,7 +31,7 @@ body:json {
       "topic" : "gossip"
     },
     {
-      "nodeAddress" : "localhost",
+      "host" : "localhost",
       "actionPort" : 9002,
       "managerPort" : 8082,
       "peers" : ["localhost:9001"],
@@ -40,7 +40,7 @@ body:json {
       "topic" : "gossip"
     },
     {
-      "nodeAddress" : "localhost",
+      "host" : "localhost",
       "actionPort" : 9003,
       "managerPort" : 8082,
       "peers" : ["localhost:9001",

@@ -14,6 +14,7 @@ public class ActionRecordRepository implements PanacheRepository<ActionRecord> {
 
     @Transactional
     public boolean save(ActionRecord actionRecord) {
+        actionRecord.id = null;
         persist(actionRecord);
         return true;
     }

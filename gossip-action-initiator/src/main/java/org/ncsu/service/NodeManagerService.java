@@ -23,6 +23,10 @@ public interface NodeManagerService {
                        @HeaderParam("strategy") String strategy);
 
     @POST
-    @Path("/start")
-    Response killNode(@HeaderParam("action-port") Integer actionPort);
+    @Path("/kill")
+    Response killNode(@HeaderParam("port") Integer actionPort);
+
+    @POST
+    @Path("/kill/all")
+    Response killAll();
 }

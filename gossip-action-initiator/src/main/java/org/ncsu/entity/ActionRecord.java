@@ -2,6 +2,8 @@ package org.ncsu.entity;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -9,7 +11,7 @@ import java.util.List;
 @Entity
 public class ActionRecord extends PanacheEntity {
 
-    String nodeAddress;
+    String host;
     Integer managerPort;
     Integer actionPort;
     List<String> peers;
@@ -17,19 +19,21 @@ public class ActionRecord extends PanacheEntity {
     String topic;
     Integer status;
     LocalDateTime timestamp;
+    @Enumerated(EnumType.STRING)
     Strategy strategy;
+    @Enumerated(EnumType.STRING)
     Action action;
 
     public ActionRecord() {}
 
     public ActionRecord(String nodeAddress, Integer managerPort) {
-        this.nodeAddress = nodeAddress;
+        this.host = nodeAddress;
         this.managerPort = managerPort;
     }
 
     public ActionRecord(String nodeAddress, Integer managerPort, Integer actionPort, List<String> peers,
                         Strategy strategy, String kafkaBroker, String topic) {
-        this.nodeAddress = nodeAddress;
+        this.host = nodeAddress;
         this.managerPort = managerPort;
         this.actionPort = actionPort;
         this.peers = peers;
@@ -40,7 +44,7 @@ public class ActionRecord extends PanacheEntity {
 
     public ActionRecord(String nodeAddress, Integer managerPort, Integer actionPort, List<String> peers, String kafkaBroker,
                         String topic, Integer status, LocalDateTime timestamp, Strategy strategy, Action action) {
-        this.nodeAddress = nodeAddress;
+        this.host = nodeAddress;
         this.managerPort = managerPort;
         this.actionPort = actionPort;
         this.peers = peers;
@@ -52,11 +56,11 @@ public class ActionRecord extends PanacheEntity {
         this.action = action;
     }
 
-    public String getNodeAddress() {
-        return nodeAddress;
+    public String getHost() {
+        return host;
     }
-    public void setNodeAddress(String nodeAddress) {
-        this.nodeAddress = nodeAddress;
+    public void setHost(String nodeAddress) {
+        this.host = nodeAddress;
     }
 
     public Integer getManagerPort() {

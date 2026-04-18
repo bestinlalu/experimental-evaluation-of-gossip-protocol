@@ -73,10 +73,25 @@ public class GossipProcessManager {
     public boolean killNode(Integer port) {
         Process process = activeNodes.remove(port);
         if (process != null && process.isAlive()) {
-            process.destroy(); // Graceful shutdown
+            System.out.println("Killing Node on port: " + port);
+            // 1. Kill all child processes (e.g., the actual compiled Go binary)
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
+            process.destroyForcibly();
             return true;
         }
         return false;
+    }
+
+    public boolean killAll() {
+        if (activeNodes.isEmpty()) {
+            System.out.println("No active nodes");
+            return false;
+        }
+
+        for (Integer port : activeNodes.keySet()) {
+            killNode(port);
+        }
+        return true;
     }
 
     /**
@@ -85,7 +100,7 @@ public class GossipProcessManager {
     void onStop(@Observes ShutdownEvent ev) {
         if (activeNodes.isEmpty()) return;
 
-        System.out.println("🛑 Quarkus is shutting down. Terminating " + activeNodes.size() + " active gossip nodes...");
+        System.out.println("Quarkus is shutting down. Terminating " + activeNodes.size() + " active gossip nodes...");
 
         for (Map.Entry<Integer, Process> entry : activeNodes.entrySet()) {
             Process process = entry.getValue();
@@ -97,6 +112,6 @@ public class GossipProcessManager {
             }
         }
         activeNodes.clear();
-        System.out.println("✅ All gossip nodes terminated.");
+        System.out.println("All gossip nodes terminated.");
     }
 }

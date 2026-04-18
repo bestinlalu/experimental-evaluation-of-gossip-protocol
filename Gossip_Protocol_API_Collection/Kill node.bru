@@ -1,0 +1,26 @@
+meta {
+  name: Kill node
+  type: http
+  seq: 4
+}
+
+post {
+  url: http://localhost:8080/action/kill
+  body: json
+  auth: inherit
+}
+
+body:json {
+  [
+    {
+      "host" : "localhost",
+      "actionPort" : 9002,
+      "managerPort" : 8082
+    }
+  ]
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
