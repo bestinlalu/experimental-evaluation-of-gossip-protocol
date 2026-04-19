@@ -160,7 +160,7 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 
 	for id, incState := range incoming {
 		if id == n.ID {
-			continue 
+			continue
 		}
 
 		localState, exists := n.StateMap[id]
@@ -191,7 +191,7 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 		if isUpdated && n.kafkaWriter != nil {
 			// Convert Unix nanoseconds to the requested ISO-8601 timestamp format
 			ts := time.Unix(0, incState.Timestamp).UTC().Format("2006-01-02T15:04:05.000Z")
-			
+
 			newKafkaEvents = append(newKafkaEvents, KafkaEvent{
 				NodeAddress: incState.Address,
 				GossipDigest: GossipDigest{
@@ -210,7 +210,7 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 		err := n.kafkaWriter.WriteMessages(context.Background(), kafka.Message{
 			Value: payload,
 		})
-		
+
 		if err != nil {
 			fmt.Printf("⚠️ [%s] Failed to write to Kafka: %v\n", n.ID, err)
 		} else {
@@ -241,7 +241,7 @@ func (n *Node) StartGossiping(interval time.Duration) {
 		rand.Shuffle(len(peerAddrs), func(i, j int) {
 			peerAddrs[i], peerAddrs[j] = peerAddrs[j], peerAddrs[i]
 		})
-		
+
 		numToSelect := 2
 		if len(peerAddrs) < 2 {
 			numToSelect = len(peerAddrs)
@@ -251,6 +251,7 @@ func (n *Node) StartGossiping(interval time.Duration) {
 		payload, _ := json.Marshal(req)
 
 		for _, targetAddr := range peerAddrs[:numToSelect] {
+			fmt.Printf("[%s] peers are: %v", n.ID, peerAddrs)
 			n.sendUDP(targetAddr, payload)
 		}
 	}
@@ -258,9 +259,13 @@ func (n *Node) StartGossiping(interval time.Duration) {
 
 func (n *Node) sendUDP(targetAddress string, payload []byte) {
 	addr, err := net.ResolveUDPAddr("udp", targetAddress)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	defer conn.Close()
 	conn.Write(payload)
 }
@@ -272,7 +277,7 @@ func main() {
 	addrFlag := flag.String("addr", "127.0.0.1:8001", "Address for this node to listen on")
 	peersFlag := flag.String("peers", "", "Comma-separated list of peer addresses")
 	// injectFlag := flag.String("inject", "", "Message to inject to start the gossip")
-	
+
 	// New Kafka Flags
 	kafkaBrokerFlag := flag.String("kafka-broker", "", "Kafka broker address (e.g., localhost:9092)")
 	kafkaTopicFlag := flag.String("kafka-topic", "gossip-events", "Kafka topic to publish to")

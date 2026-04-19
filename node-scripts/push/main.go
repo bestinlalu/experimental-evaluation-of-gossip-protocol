@@ -210,7 +210,7 @@ func (n *Node) mergeState(incoming map[string]NodeState, forwarderAddress string
 			ts := time.Unix(0, incState.Timestamp).UTC().Format("2006-01-02T15:04:05.000Z")
 			newKafkaEvents = append(newKafkaEvents, KafkaEvent{
 				CreatorAddress:   incState.Address,
-				ForwarderAddress: forwarderAddress,
+				ForwarderAddress: n.Address,
 				Strategy:         "PUSH",
 				GossipDigest: GossipDigest{
 					UID:        incState.UID,
@@ -226,10 +226,22 @@ func (n *Node) mergeState(incoming map[string]NodeState, forwarderAddress string
 
 	if len(newKafkaEvents) > 0 && n.kafkaWriter != nil {
 		go func(events []KafkaEvent) {
-			payload, _ := json.Marshal(events)
+			payload, err := json.Marshal(events)
+			if err != nil {
+				fmt.Printf("❌ Failed to marshal Kafka events: %v\n", err)
+				return
+			}
+
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			n.kafkaWriter.WriteMessages(ctx, kafka.Message{Value: payload})
+
+			// 👉 STRICT ERROR CHECKING HERE
+			err = n.kafkaWriter.WriteMessages(ctx, kafka.Message{Value: payload})
+			if err != nil {
+				fmt.Printf("❌ Kafka Write Error: %v\n", err)
+			} else {
+				fmt.Printf("✅ Successfully sent %d observed states to Kafka\n", len(events))
+			}
 		}(newKafkaEvents)
 	}
 }
@@ -291,6 +303,7 @@ func (n *Node) StartGossiping(interval time.Duration) {
 		}
 
 		for _, targetAddr := range peerAddrs[:numToSelect] {
+			fmt.Printf("[%s] peers are: %v", n.ID, peerAddrs)
 			fmt.Printf("🟢 [%s] Pushing %d states to %s\n", n.ID, len(cleanStateToSend), targetAddr)
 			n.sendUDP(targetAddr, payload)
 		}
