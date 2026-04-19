@@ -8,19 +8,25 @@ import java.time.LocalDateTime;
 @Entity
 public class GossipRecord extends PanacheEntity {
 
-    String nodeAddress;
+    String creatorAddress;
+    String forwarderAddress;
     Long generation;
     Integer version;
     LocalDateTime timestamp;
-    Boolean isAlive;
+    String uid;
+    String data;
+    Integer ttl;
 
     public GossipRecord() {}
 
-    public  GossipRecord(String nodeAddress, GossipDigest gossipDigest) {
-        this.nodeAddress = nodeAddress;
+    public  GossipRecord(String creatorAddress, String forwarderAddress, GossipDigest gossipDigest) {
+        this.creatorAddress = creatorAddress;
+        this.forwarderAddress = forwarderAddress;
         this.generation = gossipDigest.getGeneration();
         this.version = gossipDigest.getVersion();
         this.timestamp = gossipDigest.getTimestamp();
-        this.isAlive = gossipDigest.getIsAlive();
+        this.uid = gossipDigest.getUid();
+        this.data = gossipDigest.getData();
+        this.ttl = gossipDigest.getTtl();
     }
 }

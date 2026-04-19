@@ -4,18 +4,23 @@ import java.time.LocalDateTime;
 
 public class GossipDigest {
 
+    String uid;
     Long generation;
     Integer version;
     LocalDateTime timestamp;
-    Boolean isAlive;
+    String data;
+    Integer ttl;
 
     public GossipDigest()  {}
 
-    public GossipDigest(Long generation, Integer version, LocalDateTime timestamp, Boolean isAlive) {
+    public GossipDigest(String uid, Long generation, Integer version, LocalDateTime timestamp,
+                        String data, Integer ttl) {
+        this.uid = uid;
         this.generation = generation;
         this.version = version;
         this.timestamp = timestamp;
-        this.isAlive = isAlive;
+        this.data = data;
+        this.ttl = ttl;
     }
 
     public Long getGeneration() {
@@ -40,13 +45,27 @@ public class GossipDigest {
         this.timestamp = timestamp;
     }
 
-    public Boolean getIsAlive() {
-        return isAlive;
+    public String getUid() {
+        return uid;
     }
 
-    public void setIsAlive(Boolean isAlive) {
-        this.isAlive = isAlive;
+    public void setUid(String uid) {
+        this.uid = uid;
     }
 
+    public String getData() {
+        return data;
+    }
 
+    public void setData(String data) {
+        this.data = data;
+    }
+
+    public Integer getTtl() {
+        return ttl;
+    }
+
+    public void setTtl(Integer ttl) {
+        this.ttl = ttl;
+    }
 }

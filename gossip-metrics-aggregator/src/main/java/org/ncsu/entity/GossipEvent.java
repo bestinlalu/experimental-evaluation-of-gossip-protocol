@@ -2,24 +2,34 @@ package org.ncsu.entity;
 
 public class GossipEvent {
 
-    String nodeAddress;
+    String creatorAddress;
+    String forwarderAddress;
     String strategy;
     GossipDigest gossipDigest;
 
     public GossipEvent() {
     }
 
-    public GossipEvent(String nodeAddress, GossipDigest gossipDigest) {
-        this.nodeAddress = nodeAddress;
+    public GossipEvent(String creatorAddress, String forwarderAddress, GossipDigest gossipDigest) {
+        this.creatorAddress = creatorAddress;
+        this.forwarderAddress = forwarderAddress;
         this.gossipDigest = gossipDigest;
     }
 
-    public String getNodeAddress() {
-        return nodeAddress;
+    public String getCreatorAddress() {
+        return creatorAddress;
     }
 
-    public void setNodeAddress(String nodeAddress) {
-        this.nodeAddress = nodeAddress;
+    public void setCreatorAddress(String creatorAddress) {
+        this.creatorAddress = creatorAddress;
+    }
+
+    public String getForwarderAddress() {
+        return forwarderAddress;
+    }
+
+    public void setForwarderAddress(String forwarderAddress) {
+        this.forwarderAddress = forwarderAddress;
     }
 
     public String getStrategy() {

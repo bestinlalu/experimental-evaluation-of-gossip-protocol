@@ -27,8 +27,9 @@ public class GossipRecordService {
 
             for (GossipEvent gossipEvent : gossipEvents) {
                 GossipDigest gossipDigest = gossipEvent.getGossipDigest();
-                String nodeAddress = gossipEvent.getNodeAddress();
-                gossipRecords.add(new GossipRecord(nodeAddress, gossipDigest));
+                String creatorAddress = gossipEvent.getCreatorAddress();
+                String forwarderAddress = gossipEvent.getForwarderAddress();
+                gossipRecords.add(new GossipRecord(creatorAddress, forwarderAddress, gossipDigest));
             }
 
             return gossipRecordRepository.save(gossipRecords);

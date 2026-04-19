@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,6 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class GossipProcessManager {
 
     private final Map<Integer, Process> activeNodes = new ConcurrentHashMap<>();
+    private final Map<Integer, Integer> nodeRestarts = new HashMap<>();
 
     public void startNode(String address, Integer port, List<String> peers, String kafkaTopic, String kafkaBroker, String strategy) throws Exception {
         if (activeNodes.containsKey(port) && activeNodes.get(port).isAlive()) {
@@ -53,6 +55,15 @@ public class GossipProcessManager {
                 command.add("-kafka-topic");
                 command.add(kafkaTopic);
             }
+        }
+        if (nodeRestarts.containsKey(port)) {
+            nodeRestarts.put(port, nodeRestarts.get(port) + 1);
+            command.add("-gen");
+            command.add(Integer.toString(nodeRestarts.get(port)));
+        } else {
+            command.add("-gen");
+            command.add(String.valueOf(0));
+            nodeRestarts.put(port, 0);
         }
 
         System.out.println("DEBUG: Raw peer string before ProcessBuilder: " + address);
