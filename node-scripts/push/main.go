@@ -43,12 +43,13 @@ type GossipMessage struct {
 // --- Kafka Structs ---
 
 type GossipDigest struct {
-	UID        string `json:"uid"`
-	Generation int64  `json:"generation"`
-	Version    int64  `json:"version"`
-	Timestamp  string `json:"timestamp"`
-	Data       string `json:"data"`
-	TTL        int64  `json:"ttl"`
+	UID                string `json:"uid"`
+	Generation         int64  `json:"generation"`
+	Version            int64  `json:"version"`
+	ForwarderTimestamp string `json:"forwarderTimestamp"`
+	CreationTimestamp  string `json:"creationTimestamp"`
+	Data               string `json:"data"`
+	TTL                int64  `json:"ttl"`
 }
 
 type KafkaEvent struct {
@@ -158,12 +159,12 @@ func (n *Node) StartListening() {
 		}
 
 		if msg.Type == "PUSH" {
-			n.mergeState(msg.State, msg.SenderAddress)
+			n.mergeState(msg.State)
 		}
 	}
 }
 
-func (n *Node) mergeState(incoming map[string]NodeState, forwarderAddress string) {
+func (n *Node) mergeState(incoming map[string]NodeState) {
 	n.stateLock.Lock()
 	defer n.stateLock.Unlock()
 
@@ -213,12 +214,13 @@ func (n *Node) mergeState(incoming map[string]NodeState, forwarderAddress string
 				ForwarderAddress: n.Address,
 				Strategy:         "PUSH",
 				GossipDigest: GossipDigest{
-					UID:        incState.UID,
-					Generation: incState.Generation,
-					Version:    incState.Version,
-					Timestamp:  ts,
-					Data:       incState.Data,
-					TTL:        (incState.ExpiresAt - incState.Timestamp) / int64(time.Second),
+					UID:                incState.UID,
+					Generation:         incState.Generation,
+					Version:            incState.Version,
+					CreationTimestamp:  ts,
+					ForwarderTimestamp: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+					Data:               incState.Data,
+					TTL:                (incState.ExpiresAt - incState.Timestamp) / int64(time.Second),
 				},
 			})
 		}

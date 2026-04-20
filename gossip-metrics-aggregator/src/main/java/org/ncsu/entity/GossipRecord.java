@@ -12,7 +12,8 @@ public class GossipRecord extends PanacheEntity {
     String forwarderAddress;
     Long generation;
     Integer version;
-    LocalDateTime timestamp;
+    LocalDateTime creationTimestamp;
+    LocalDateTime forwarderTimestamp;
     String uid;
     String data;
     Integer ttl;
@@ -24,7 +25,8 @@ public class GossipRecord extends PanacheEntity {
         this.forwarderAddress = forwarderAddress;
         this.generation = gossipDigest.getGeneration();
         this.version = gossipDigest.getVersion();
-        this.timestamp = gossipDigest.getTimestamp();
+        this.creationTimestamp = gossipDigest.getCreationTimestamp();
+        this.forwarderTimestamp = gossipDigest.getForwarderTimestamp();
         this.uid = gossipDigest.getUid();
         this.data = gossipDigest.getData();
         this.ttl = gossipDigest.getTtl();

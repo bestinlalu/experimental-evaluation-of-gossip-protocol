@@ -7,18 +7,20 @@ public class GossipDigest {
     String uid;
     Long generation;
     Integer version;
-    LocalDateTime timestamp;
+    LocalDateTime creationTimestamp;
+    LocalDateTime forwarderTimestamp;
     String data;
     Integer ttl;
 
     public GossipDigest()  {}
 
-    public GossipDigest(String uid, Long generation, Integer version, LocalDateTime timestamp,
-                        String data, Integer ttl) {
+    public GossipDigest(String uid, Long generation, Integer version, LocalDateTime creationTimestamp,
+                        LocalDateTime forwarderTimestamp, String data, Integer ttl) {
         this.uid = uid;
         this.generation = generation;
         this.version = version;
-        this.timestamp = timestamp;
+        this.creationTimestamp = creationTimestamp;
+        this.forwarderTimestamp = forwarderTimestamp;
         this.data = data;
         this.ttl = ttl;
     }
@@ -37,12 +39,20 @@ public class GossipDigest {
         this.version = version;
     }
 
-    public LocalDateTime getTimestamp() {
-        return timestamp;
+    public LocalDateTime getCreationTimestamp() {
+        return creationTimestamp;
     }
 
-    public void setTimestamp(LocalDateTime timestamp) {
-        this.timestamp = timestamp;
+    public void setCreationTimestamp(LocalDateTime creationTimestamp) {
+        this.creationTimestamp = creationTimestamp;
+    }
+
+    public LocalDateTime getForwarderTimestamp() {
+        return forwarderTimestamp;
+    }
+
+    public void setForwarderTimestamp(LocalDateTime forwarderTimestamp) {
+        this.forwarderTimestamp = forwarderTimestamp;
     }
 
     public String getUid() {
