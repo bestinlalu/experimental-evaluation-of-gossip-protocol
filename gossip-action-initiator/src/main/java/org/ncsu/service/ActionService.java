@@ -155,7 +155,13 @@ public class ActionService {
                 NodeManagerService nodeManagerService = RestClientBuilder.newBuilder()
                         .baseUri(URI.create(activeHost))
                         .build(NodeManagerService.class);
-                Response response = nodeManagerService.killAll();
+                Response response = null;
+                try {
+                    response = nodeManagerService.killAll();
+                } catch (WebApplicationException e) {
+                    LOG.error(e);
+                    response = e.getResponse();
+                }
                 if (response.getStatus() != Response.Status.OK.getStatusCode()) {
                     LOG.error("Error while trying to Kill all on nodes on address: " + activeHost + ", Status: " + response.getStatus());
                 }
