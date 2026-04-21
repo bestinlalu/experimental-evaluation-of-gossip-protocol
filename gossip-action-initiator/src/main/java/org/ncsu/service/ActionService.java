@@ -151,7 +151,7 @@ public class ActionService {
             if (activeNodes.isEmpty()) {
                 LOG.info("No active nodes found");
             }
-            for (String activeHost : activeNodes.keySet()) {
+            for (String activeHost : new HashSet<>(activeNodes.keySet())) {
                 NodeManagerService nodeManagerService = RestClientBuilder.newBuilder()
                         .baseUri(URI.create(activeHost))
                         .build(NodeManagerService.class);

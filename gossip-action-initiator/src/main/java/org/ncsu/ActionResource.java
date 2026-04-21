@@ -55,6 +55,7 @@ public class ActionResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public Response killAll() {
+        LOG.info("Initiated Kill all nodes");
         boolean initiated = actionService.killAllNodes();
         if (initiated) {
             return Response.status(Response.Status.OK).build();

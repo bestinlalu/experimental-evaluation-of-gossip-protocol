@@ -1,0 +1,58 @@
+meta {
+  name: Start nodes Remote
+  type: http
+  seq: 4
+}
+
+post {
+  url: http://localhost:8080/action/start
+  body: json
+  auth: inherit
+}
+
+body:json {
+  [
+    {
+      "host" : "localhost",
+      "actionPort" : 9000,
+      "managerPort" : 8082,
+      "peers" : [],
+      "strategy" : "PUSH",
+      "kafkaBroker" : "localhost:9092",
+      "topic" : "gossip"
+    },
+    {
+      "host" : "localhost",
+      "actionPort" : 9001,
+      "managerPort" : 8082,
+      "peers" : ["localhost:9000"],
+      "strategy" : "PUSH",
+      "kafkaBroker" : "localhost:9092",
+      "topic" : "gossip"
+    },
+    {
+      "host" : "localhost",
+      "actionPort" : 9002,
+      "managerPort" : 8082,
+      "peers" : ["localhost:9001"],
+      "strategy" : "PUSH",
+      "kafkaBroker" : "localhost:9092",
+      "topic" : "gossip"
+    },
+    {
+      "host" : "localhost",
+      "actionPort" : 9003,
+      "managerPort" : 8082,
+      "peers" : ["localhost:9001",
+                "localhost:9000"],
+      "strategy" : "PUSH",
+      "kafkaBroker" : "localhost:9092",
+      "topic" : "gossip"
+    }
+  ]
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}

@@ -336,14 +336,24 @@ func (n *Node) StartGossiping(interval time.Duration) {
 func (n *Node) sendUDP(targetAddress string, payload []byte) {
 	addr, err := net.ResolveUDPAddr("udp", targetAddress)
 	if err != nil {
+		fmt.Printf("[%s] ❌ [%s] Resolution error for peer %s: %v\n", getCurrentTimestamp(), n.ID, targetAddress, err)
 		return
 	}
+
 	conn, err := net.DialUDP("udp", nil, addr)
 	if err != nil {
+		fmt.Printf("[%s] ❌ [%s] Dial error to peer %s: %v\n", getCurrentTimestamp(), n.ID, targetAddress, err)
 		return
 	}
 	defer conn.Close()
-	conn.Write(payload)
+
+	_, err = conn.Write(payload)
+	if err != nil {
+		fmt.Printf("[%s] ❌ [%s] Failed to SEND gossip to %s: %v\n", getCurrentTimestamp(), n.ID, targetAddress, err)
+	} else {
+		// Optional: Debugging log for successful sends
+		// fmt.Printf("[%s] 📤 [%s] Gossip sent to %s\n", getCurrentTimestamp(), n.ID, targetAddress)
+	}
 }
 
 func main() {
