@@ -15,6 +15,7 @@ public class GossipProcessManager {
 
     private final Map<Integer, Process> activeNodes = new ConcurrentHashMap<>();
     private final Map<Integer, Integer> nodeRestarts = new HashMap<>();
+    private final Map<Integer, Process> activeTelemetrys = new ConcurrentHashMap<>();
 
     public void startNode(String address, Integer port, List<String> peers, String kafkaTopic, String kafkaBroker, String strategy) throws Exception {
         if (activeNodes.containsKey(port) && activeNodes.get(port).isAlive()) {
@@ -68,26 +69,44 @@ public class GossipProcessManager {
 
         System.out.println("DEBUG: Raw peer string before ProcessBuilder: " + address);
 
+        List<String> telemetryCommand = new ArrayList<>();
+        telemetryCommand.add("python3");
+        telemetryCommand.add("../node-scripts/node_telemetry/start_node_telemetry.py");
+        telemetryCommand.add("-addr");
+        telemetryCommand.add(address + ":" + port);
+        telemetryCommand.add("-kafka-broker");
+        telemetryCommand.add(kafkaBroker);
+
         ProcessBuilder pb = new ProcessBuilder(command);
+        ProcessBuilder pbtl = new ProcessBuilder(telemetryCommand);
         // pb.directory(new File("/path/to/your/go/project"));
         pb.inheritIO();
 
         Process process = pb.start();
+        Process telemetry = pbtl.start();
 
         if (!process.isAlive() && process.exitValue() != 0) {
+            telemetry.destroyForcibly();
             throw new RuntimeException("Go process terminated immediately upon starting.");
         }
 
         activeNodes.put(port, process);
+        activeTelemetrys.put(port, telemetry);
     }
 
     public boolean killNode(Integer port) {
         Process process = activeNodes.remove(port);
+        Process telemetry = activeTelemetrys.remove(port);
         if (process != null && process.isAlive()) {
             System.out.println("Killing Node on port: " + port);
             // 1. Kill all child processes (e.g., the actual compiled Go binary)
             process.descendants().forEach(ProcessHandle::destroyForcibly);
             process.destroyForcibly();
+
+            if (telemetry != null && telemetry.isAlive()) {
+                telemetry.descendants().forEach(ProcessHandle::destroyForcibly);
+                telemetry.destroyForcibly();
+            }
             return true;
         }
         return false;
