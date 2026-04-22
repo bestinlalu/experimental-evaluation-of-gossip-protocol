@@ -1,11 +1,11 @@
-VM1_IP="152.7.177.154"
-VM2_IP"="152.7.177.182"
-USER="blalu"
+export VM1_IP="152.7.179.141"
+export VM2_IP="152.7.179.79"
+export USER="blalu"
 
-DB_USER="root"
-DB_PASS="password"
-DB_NAME="gossipdb"
-GO_DIR="/home/sshunmu2/goroot/go/bin"
+export DB_USER="root"
+export DB_PASS="password"
+export DB_NAME="gossipdb"
+export GO_DIR="/home/$USER/goroot/go/bin"
 
 
 echo ""
@@ -31,15 +31,15 @@ echo "Checking Go installation..."
 if [ ! -f "$GO_DIR/go" ]; then
     echo "Go 1.23 not found! Installing..."
     wget -q https://go.dev/dl/go1.23.4.linux-amd64.tar.gz -O /tmp/go1.23.4.tar.gz
-    mkdir -p /home/sshunmu2/goroot
-    tar -C /home/sshunmu2/goroot -xzf /tmp/go1.23.4.tar.gz
+    mkdir -p /home/$USER/goroot
+    tar -C /home/$USER/goroot -xzf /tmp/go1.23.4.tar.gz
     rm /tmp/go1.23.4.tar.gz
     echo "Go 1.23 installed!"
 else
     echo "Go 1.23 available!"
 fi
 
-export GOROOT=/home/blalu/goroot/go
+export GOROOT=/home/$USER/goroot/go
 export PATH=$GOROOT/bin:$PATH
 export GOPATH=/home/$USER/gopath
 go version
@@ -87,7 +87,7 @@ if sudo mysql -e "SELECT 1;" 2>/dev/null; then
     sudo mysql << SQLEOF
 ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$DB_PASS';
 CREATE DATABASE IF NOT EXISTS $DB_NAME;
-GRANT ALL PRIVILEGES ON $DB_NAME.* TO 'root'@'localhost';
+GRANT ALL PRIVILEGES ON $DB_NAME.* TO 'root'@'%';
 FLUSH PRIVILEGES;
 SQLEOF
     echo "MySQL configured successfully!"
@@ -97,6 +97,11 @@ elif mysql -u $DB_USER -p$DB_PASS -e "SELECT 1;" 2>/dev/null; then
 else
     echo "WARNING: Could not configure MySQL automatically!"
 fi
+
+# UPDATE mysql.user SET Host='%' WHERE User='root' AND Host='localhost';
+
+# -- Refresh permissions
+# FLUSH PRIVILEGES;
 
 # Allow remote connections
 sudo sed -i 's/bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mysql.conf.d/mysqld.cnf 2>/dev/null || true
@@ -124,7 +129,7 @@ mvn -version
 # ─────────────────────────────────────────
 # Setup Tunneling in local machine
 # ─────────────────────────────────────────
-ssh -L 9090:127.0.0.1:8080 blalu@152.7.177.154
+ssh -L 9090:127.0.0.1:8080 blalu@152.7.179.141
 
 
 # ─────────────────────────────────────────
@@ -136,7 +141,8 @@ sudo ufw allow 8080/tcp
 sudo ufw allow 8081/tcp
 sudo ufw allow 8082/tcp
 sudo ufw allow 9000:9005/udp
-sudo ufw allow from 152.7.177.182  # Allow EVERYTHING from VM2
+sudo ufw allow 6000:8000/udp
+sudo ufw allow from 152.7.179.79  # Allow EVERYTHING from VM2
 sudo ufw allow 9092/tcp           # Specifically allow Kafka
 
 # Check the status to make sure they are active

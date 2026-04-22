@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/big"
 	"net"
 	"strings"
 	"sync"
@@ -132,6 +133,26 @@ func (n *Node) UpdateOwnData(newData string) {
 	fmt.Printf("[%s] 💓 [%s] Executing Round %d: '%s' [UID: %s]\n", getCurrentTimestamp(), n.ID, state.Version, newData, state.UID)
 }
 
+func randomSample(items []string, k int) []string {
+	if len(items) <= k {
+		return items
+	}
+
+	shuffled := make([]string, len(items))
+	copy(shuffled, items)
+
+	for i := len(shuffled) - 1; i > 0; i-- {
+		jBig, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			jBig = big.NewInt(int64(i))
+		}
+		j := int(jBig.Int64())
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+
+	return shuffled[:k]
+}
+
 func (n *Node) StartListening() {
 	addr, err := net.ResolveUDPAddr("udp", n.Address)
 	if err != nil {
@@ -248,7 +269,7 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 	}
 }
 
-func (n *Node) StartGossiping(interval time.Duration) {
+func (n *Node) StartGossiping(interval time.Duration, fanout int) {
 	for {
 		time.Sleep(interval)
 
@@ -322,12 +343,11 @@ func (n *Node) StartGossiping(interval time.Duration) {
 			continue
 		}
 
-		numToSelect := 2
-		if len(peerAddrs) < 2 {
-			numToSelect = len(peerAddrs)
-		}
+		// if len(peerAddrs) < fanout {
+		// 	numToSelect = len(peerAddrs)
+		// }
 
-		for _, targetAddr := range peerAddrs[:numToSelect] {
+		for _, targetAddr := range randomSample(peerAddrs, fanout) {
 			n.sendUDP(targetAddr, payload)
 		}
 	}
@@ -361,6 +381,7 @@ func main() {
 	addrFlag := flag.String("addr", "127.0.0.1:8001", "Address for this node to listen on")
 	peersFlag := flag.String("peers", "", "Comma-separated list of peer addresses")
 	injectFlag := flag.String("inject", "", "Message to inject to start the gossip")
+	fanoutFlag := flag.Int("fanout", 2, "Number of peers to pull from each round")
 
 	genFlag := flag.Int64("gen", 1, "Generation number for the node (default: 1)")
 	ttlFlag := flag.Duration("ttl", 5*time.Second, "Time to live for gossip records")
@@ -380,7 +401,7 @@ func main() {
 	go node.StartListening()
 	// Ticking every 1 second keeps gossip fast, but it will only advance the round
 	// if the vector clock condition is met!
-	go node.StartGossiping(1 * time.Second)
+	go node.StartGossiping(1*time.Second, *fanoutFlag)
 
 	if *injectFlag != "" {
 		time.Sleep(1 * time.Second)

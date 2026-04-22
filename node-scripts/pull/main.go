@@ -222,7 +222,18 @@ func (n *Node) handlePullRequest(conn *net.UDPConn, remoteAddr *net.UDPAddr, msg
 	// Opportunistically remember requester as a peer if we don't know it yet
 	if msg.SenderAddress != "" && msg.SenderAddress != n.Address {
 		n.stateLock.Lock()
-		if _, exists := n.StateMap[msg.SenderAddress]; !exists {
+
+		// Check if we know them by Address
+		_, knownByAddr := n.StateMap[msg.SenderAddress]
+
+		// Check if we know them by ID (they just sent it to us!)
+		knownByID := false
+		if msg.SenderID != "" {
+			_, knownByID = n.StateMap[msg.SenderID]
+		}
+
+		// Only create the -1 ghost if we have NO record of them at all
+		if !knownByAddr && !knownByID {
 			n.StateMap[msg.SenderAddress] = NodeState{
 				ID:      msg.SenderID,
 				Address: msg.SenderAddress,
@@ -246,11 +257,22 @@ func (n *Node) handlePullRequest(conn *net.UDPConn, remoteAddr *net.UDPAddr, msg
 		return
 	}
 
-	_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
-	if _, err := conn.WriteToUDP(payload, remoteAddr); err != nil {
-		fmt.Printf("[%s] ❌ [%s] Failed to respond to pull request from %s: %v\n",
-			getCurrentTimestamp(), n.ID, remoteAddr.String(), err)
+	if msg.SenderAddress != "" {
+		// We fire this off in a goroutine so we don't block the listener!
+		go n.sendUDP(msg.SenderAddress, payload)
+	} else {
+		fmt.Printf("[%s] ⚠️ [%s] Cannot respond: SenderAddress is empty\n", getCurrentTimestamp(), n.ID)
 	}
+}
+
+func (n *Node) refreshHeartbeat() {
+	n.stateLock.Lock()
+	defer n.stateLock.Unlock()
+
+	state := n.StateMap[n.ID]
+	state.Timestamp = nowUnixNano()
+	state.ExpiresAt = time.Now().Add(n.TTL).UnixNano()
+	n.StateMap[n.ID] = state
 }
 
 func (n *Node) getCleanStateSnapshot() map[string]NodeState {
@@ -269,7 +291,12 @@ func (n *Node) getCleanStateSnapshot() map[string]NodeState {
 			continue
 		}
 
-		// include real records and address placeholders
+		// FIX: Do not broadcast local placeholders to the network!
+		if st.Version < 0 {
+			continue
+		}
+
+		// include real records
 		if st.Address != "" {
 			clean[key] = st
 		}
@@ -433,6 +460,7 @@ func (n *Node) evaluateRoundProgress() {
 	} else {
 		fmt.Printf("[%s] ⏳ [%s] Blocked at Round %d. Waiting on peers: %v\n",
 			getCurrentTimestamp(), n.ID, myVersion, laggingPeers)
+		n.refreshHeartbeat()
 	}
 }
 
