@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"net"
 	"strings"
 	"sync"
@@ -14,77 +15,140 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// --- Gossip Structs ---
+// ---------- Helpers ----------
+
+func generateUID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+func getCurrentTimestamp() string {
+	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+func nowUnixNano() int64 {
+	return time.Now().UnixNano()
+}
+
+func formatUnixNano(ts int64) string {
+	return time.Unix(0, ts).UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+func randomSample(items []string, k int) []string {
+	if len(items) <= k {
+		return items
+	}
+
+	shuffled := make([]string, len(items))
+	copy(shuffled, items)
+
+	for i := len(shuffled) - 1; i > 0; i-- {
+		jBig, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			jBig = big.NewInt(int64(i))
+		}
+		j := int(jBig.Int64())
+		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
+	}
+
+	return shuffled[:k]
+}
+
+// ---------- Gossip Structs ----------
 
 type NodeState struct {
 	ID         string `json:"id"`
+	UID        string `json:"uid"`
 	Address    string `json:"address"`
 	Data       string `json:"data"`
 	Generation int64  `json:"generation"`
 	Version    int64  `json:"version"`
-	Timestamp  int64  `json:"timestamp"` // Unix epoch in nanoseconds
+	Timestamp  int64  `json:"timestamp"`
+	ExpiresAt  int64  `json:"expiresAt"`
 }
 
 type GossipMessage struct {
-	Type    string               `json:"type"`
-	ReplyTo string               `json:"reply_to"`
-	State   map[string]NodeState `json:"state"`
+	Type          string               `json:"type"`
+	SenderAddress string               `json:"senderAddress"`
+	SenderID      string               `json:"senderId,omitempty"`
+	State         map[string]NodeState `json:"state,omitempty"`
 }
 
-// --- Kafka Structs ---
+// ---------- Kafka Structs ----------
 
 type GossipDigest struct {
-	Generation int64  `json:"generation"`
-	Version    int64  `json:"version"`
-	Timestamp  string `json:"timestamp"` // ISO-8601 string
-	IsAlive    bool   `json:"isAlive"`
+	UID                string `json:"uid"`
+	Generation         int64  `json:"generation"`
+	Version            int64  `json:"version"`
+	ForwarderTimestamp string `json:"forwarderTimestamp"`
+	CreationTimestamp  string `json:"creationTimestamp"`
+	Data               string `json:"data"`
+	TTL                int64  `json:"ttl"`
 }
 
 type KafkaEvent struct {
-	NodeAddress  string       `json:"nodeAddress"`
-	GossipDigest GossipDigest `json:"gossipDigest"`
+	CreatorAddress   string       `json:"creatorAddress"`
+	ForwarderAddress string       `json:"forwarderAddress"`
+	Strategy         string       `json:"strategy"`
+	GossipDigest     GossipDigest `json:"gossipDigest"`
 }
 
-// --- Node Definition ---
+// ---------- Node ----------
 
 type Node struct {
 	ID          string
 	Address     string
 	StateMap    map[string]NodeState
 	stateLock   sync.RWMutex
-	kafkaWriter *kafka.Writer // Kafka producer
+	kafkaWriter *kafka.Writer
+	TTL         time.Duration
 }
 
-func NewNode(id, address string, initialPeers []string, kafkaBroker, kafkaTopic string) *Node {
+func NewNode(id, address string, generation int64, ttl time.Duration, initialPeers []string, kafkaBroker, kafkaTopic string) *Node {
 	n := &Node{
 		ID:       id,
 		Address:  address,
+		TTL:      ttl,
 		StateMap: make(map[string]NodeState),
 	}
 
-	// Initialize Kafka Writer if a broker is provided
 	if kafkaBroker != "" && kafkaTopic != "" {
 		n.kafkaWriter = &kafka.Writer{
-			Addr:     kafka.TCP(kafkaBroker),
-			Topic:    kafkaTopic,
-			Balancer: &kafka.LeastBytes{},
+			Addr:         kafka.TCP(kafkaBroker),
+			Topic:        kafkaTopic,
+			Balancer:     &kafka.LeastBytes{},
+			RequiredAcks: kafka.RequireOne,
+			Async:        true,
 		}
-		fmt.Printf("📡 [%s] Kafka producer initialized (Broker: %s, Topic: %s)\n", n.ID, kafkaBroker, kafkaTopic)
+		fmt.Printf("[%s] 📡 [%s] Kafka producer initialized (Broker: %s, Topic: %s)\n",
+			getCurrentTimestamp(), n.ID, kafkaBroker, kafkaTopic)
 	}
 
-	// Initialize own state
+	now := time.Now()
 	n.StateMap[id] = NodeState{
 		ID:         id,
+		UID:        generateUID(),
 		Address:    address,
 		Data:       "",
-		Generation: time.Now().UnixNano(),
+		Generation: generation,
 		Version:    0,
-		Timestamp:  time.Now().UnixNano(),
+		Timestamp:  now.UnixNano(),
+		ExpiresAt:  now.Add(ttl).UnixNano(),
 	}
 
+	// Pre-register peers using address as temporary key
 	for _, peerAddr := range initialPeers {
-		if peerAddr != "" {
-			n.StateMap[peerAddr] = NodeState{Address: peerAddr, Version: -1}
+		peerAddr = strings.TrimSpace(peerAddr)
+		if peerAddr == "" || peerAddr == address {
+			continue
+		}
+		n.StateMap[peerAddr] = NodeState{
+			ID:      "",
+			Address: peerAddr,
+			Version: -1,
 		}
 	}
 
@@ -96,25 +160,47 @@ func (n *Node) UpdateOwnData(newData string) {
 	defer n.stateLock.Unlock()
 
 	state := n.StateMap[n.ID]
+	now := time.Now()
+
 	state.Data = newData
 	state.Version++
-	state.Timestamp = time.Now().UnixNano()
+	state.UID = generateUID()
+	state.Timestamp = now.UnixNano()
+	state.ExpiresAt = now.Add(n.TTL).UnixNano()
+	state.Address = n.Address
+	state.ID = n.ID
+
 	n.StateMap[n.ID] = state
 
-	fmt.Printf("🚀 [%s] Updated own state to: '%s' (v%d)\n", n.ID, newData, state.Version)
+	fmt.Printf("[%s] 💓 [%s] Executing Round %d: '%s' [UID: %s]\n",
+		getCurrentTimestamp(), n.ID, state.Version, newData, state.UID)
 }
 
 func (n *Node) StartListening() {
-	addr, _ := net.ResolveUDPAddr("udp", n.Address)
-	conn, _ := net.ListenUDP("udp", addr)
+	addr, err := net.ResolveUDPAddr("udp", n.Address)
+	if err != nil {
+		fmt.Printf("[%s] ❌ [%s] Failed to resolve listen address: %v\n", getCurrentTimestamp(), n.ID, err)
+		return
+	}
+
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		fmt.Printf("[%s] ❌ [%s] Failed to bind UDP listener: %v\n", getCurrentTimestamp(), n.ID, err)
+		return
+	}
 	defer conn.Close()
 
-	fmt.Printf("🎧 [%s] Listening for gossip on %s...\n", n.ID, n.Address)
-	buffer := make([]byte, 8192)
+	fmt.Printf("[%s] 🎧 [%s] Listening for gossip on %s...\n", getCurrentTimestamp(), n.ID, n.Address)
+
+	buffer := make([]byte, 65535)
 
 	for {
-		length, _, err := conn.ReadFromUDP(buffer)
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		length, remoteAddr, err := conn.ReadFromUDP(buffer)
 		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				continue
+			}
 			continue
 		}
 
@@ -123,135 +209,288 @@ func (n *Node) StartListening() {
 			continue
 		}
 
-		if msg.Type == "PULL_REQ" {
-			n.handlePullRequest(msg.ReplyTo)
-		} else if msg.Type == "PULL_RESP" {
+		switch msg.Type {
+		case "PULL_REQUEST":
+			n.handlePullRequest(conn, remoteAddr, msg)
+		case "PULL_RESPONSE":
 			n.mergeState(msg.State)
 		}
 	}
 }
 
-func (n *Node) handlePullRequest(replyToAddress string) {
-	n.stateLock.Lock()
-	found := false
-	for _, state := range n.StateMap {
-		if state.Address == replyToAddress {
-			found = true
-			break
+func (n *Node) handlePullRequest(conn *net.UDPConn, remoteAddr *net.UDPAddr, msg GossipMessage) {
+	// Opportunistically remember requester as a peer if we don't know it yet
+	if msg.SenderAddress != "" && msg.SenderAddress != n.Address {
+		n.stateLock.Lock()
+		if _, exists := n.StateMap[msg.SenderAddress]; !exists {
+			n.StateMap[msg.SenderAddress] = NodeState{
+				ID:      msg.SenderID,
+				Address: msg.SenderAddress,
+				Version: -1,
+			}
 		}
-	}
-	if !found {
-		n.StateMap[replyToAddress] = NodeState{Address: replyToAddress, Version: -1}
+		n.stateLock.Unlock()
 	}
 
-	resp := GossipMessage{Type: "PULL_RESP", State: n.StateMap}
-	payload, _ := json.Marshal(resp)
-	n.stateLock.Unlock()
+	snapshot := n.getCleanStateSnapshot()
 
-	n.sendUDP(replyToAddress, payload)
+	resp := GossipMessage{
+		Type:          "PULL_RESPONSE",
+		SenderAddress: n.Address,
+		SenderID:      n.ID,
+		State:         snapshot,
+	}
+
+	payload, err := json.Marshal(resp)
+	if err != nil {
+		return
+	}
+
+	_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.WriteToUDP(payload, remoteAddr); err != nil {
+		fmt.Printf("[%s] ❌ [%s] Failed to respond to pull request from %s: %v\n",
+			getCurrentTimestamp(), n.ID, remoteAddr.String(), err)
+	}
 }
 
-// mergeState compares incoming states, updates locals, and fires Kafka events
+func (n *Node) getCleanStateSnapshot() map[string]NodeState {
+	n.stateLock.Lock()
+	defer n.stateLock.Unlock()
+
+	now := nowUnixNano()
+	clean := make(map[string]NodeState)
+
+	for key, st := range n.StateMap {
+		// expire non-self records
+		if key != n.ID && st.ExpiresAt > 0 && now > st.ExpiresAt {
+			fmt.Printf("[%s] 🗑️ [%s] Record for %s expired. Removing from state map.\n",
+				getCurrentTimestamp(), n.ID, key)
+			delete(n.StateMap, key)
+			continue
+		}
+
+		// include real records and address placeholders
+		if st.Address != "" {
+			clean[key] = st
+		}
+	}
+
+	return clean
+}
+
+func isIncomingNewer(localState, incState NodeState, exists bool) bool {
+	if !exists {
+		return true
+	}
+
+	if incState.Generation > localState.Generation {
+		return true
+	}
+
+	if incState.Generation == localState.Generation && incState.Version > localState.Version {
+		return true
+	}
+
+	if incState.Generation == localState.Generation &&
+		incState.Version == localState.Version &&
+		incState.Timestamp > localState.Timestamp {
+		return true
+	}
+
+	return false
+}
+
 func (n *Node) mergeState(incoming map[string]NodeState) {
+	if len(incoming) == 0 {
+		return
+	}
+
 	n.stateLock.Lock()
 	defer n.stateLock.Unlock()
 
 	var newKafkaEvents []KafkaEvent
+	now := nowUnixNano()
 
-	for id, incState := range incoming {
-		if id == n.ID {
+	for incomingKey, incState := range incoming {
+		if incState.Address == "" && incomingKey == "" {
 			continue
 		}
 
-		localState, exists := n.StateMap[id]
-		isUpdated := false
+		// Normalize key: prefer logical ID, fallback to address
+		mapKey := incState.ID
+		if mapKey == "" {
+			mapKey = incomingKey
+		}
+		if mapKey == "" {
+			mapKey = incState.Address
+		}
+		if mapKey == "" || mapKey == n.ID || incState.Address == n.Address {
+			continue
+		}
 
-		if !exists {
-			n.StateMap[id] = incState
-			fmt.Printf("🔍 [%s] Discovered NEW peer: %s at %s\n", n.ID, id, incState.Address)
-			isUpdated = true
-			if _, tempExists := n.StateMap[incState.Address]; tempExists && id != incState.Address {
-				delete(n.StateMap, incState.Address)
+		if incState.ExpiresAt > 0 && now > incState.ExpiresAt {
+			continue
+		}
+
+		localState, exists := n.StateMap[mapKey]
+		updated := false
+
+		if isIncomingNewer(localState, incState, exists) {
+			n.StateMap[mapKey] = incState
+			updated = true
+
+			if exists {
+				fmt.Printf("[%s] 🔄 [%s] Updated state for %s: '%s' (v%d) [UID: %s]\n",
+					getCurrentTimestamp(), n.ID, mapKey, incState.Data, incState.Version, incState.UID)
+			} else {
+				fmt.Printf("[%s] 🔍 [%s] Discovered NEW peer ID: %s (UID: %s)\n",
+					getCurrentTimestamp(), n.ID, mapKey, incState.UID)
 			}
-		} else {
-			isNewerGeneration := incState.Generation > localState.Generation
-			isNewerVersion := (incState.Generation == localState.Generation) && (incState.Version > localState.Version)
 
-			if isNewerGeneration || isNewerVersion {
-				n.StateMap[id] = incState
-				fmt.Printf("🔄 [%s] Updated state for %s: '%s' (v%d)\n", n.ID, id, incState.Data, incState.Version)
-				isUpdated = true
-				if _, tempExists := n.StateMap[incState.Address]; tempExists && id != incState.Address {
+			// remove stale address-only placeholder if we now know a real ID
+			if incState.ID != "" && incState.Address != "" && incState.ID != incState.Address {
+				if _, tempExists := n.StateMap[incState.Address]; tempExists {
 					delete(n.StateMap, incState.Address)
+					fmt.Printf("[%s] 🧹 [%s] Removed stale address entry for %s due to new info from %s\n",
+						getCurrentTimestamp(), n.ID, incState.Address, incState.ID)
 				}
 			}
 		}
 
-		// If a node was updated or newly discovered, prepare a Kafka event
-		if isUpdated && n.kafkaWriter != nil {
-			// Convert Unix nanoseconds to the requested ISO-8601 timestamp format
-			ts := time.Unix(0, incState.Timestamp).UTC().Format("2006-01-02T15:04:05.000Z")
+		if updated && n.kafkaWriter != nil && incState.UID != "" {
+			ttlSeconds := int64(0)
+			if incState.ExpiresAt > incState.Timestamp {
+				ttlSeconds = (incState.ExpiresAt - incState.Timestamp) / int64(time.Second)
+			}
 
 			newKafkaEvents = append(newKafkaEvents, KafkaEvent{
-				NodeAddress: incState.Address,
+				CreatorAddress:   incState.Address,
+				ForwarderAddress: n.Address,
+				Strategy:         "PULL",
 				GossipDigest: GossipDigest{
-					Generation: incState.Generation,
-					Version:    incState.Version,
-					Timestamp:  ts,
-					IsAlive:    true, // Since we just got a valid update, we assume it's alive
+					UID:                incState.UID,
+					Generation:         incState.Generation,
+					Version:            incState.Version,
+					CreationTimestamp:  formatUnixNano(incState.Timestamp),
+					ForwarderTimestamp: getCurrentTimestamp(),
+					Data:               incState.Data,
+					TTL:                ttlSeconds,
 				},
 			})
 		}
 	}
 
-	// Publish the array of events to Kafka
 	if len(newKafkaEvents) > 0 && n.kafkaWriter != nil {
-		payload, _ := json.Marshal(newKafkaEvents)
-		err := n.kafkaWriter.WriteMessages(context.Background(), kafka.Message{
-			Value: payload,
-		})
+		go func(events []KafkaEvent) {
+			payload, err := json.Marshal(events)
+			if err != nil {
+				return
+			}
 
-		if err != nil {
-			fmt.Printf("⚠️ [%s] Failed to write to Kafka: %v\n", n.ID, err)
-		} else {
-			fmt.Printf("📨 [%s] Published %d update(s) to Kafka topic.\n", n.ID, len(newKafkaEvents))
-		}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			if err := n.kafkaWriter.WriteMessages(ctx, kafka.Message{Value: payload}); err != nil {
+				fmt.Printf("[%s] ❌ [%s] Kafka Write Error: %v\n", getCurrentTimestamp(), n.ID, err)
+			}
+		}(newKafkaEvents)
 	}
 }
 
-func (n *Node) StartGossiping(interval time.Duration) {
-	rand.Seed(time.Now().UnixNano())
+func (n *Node) evaluateRoundProgress() {
+	n.stateLock.RLock()
+	myState := n.StateMap[n.ID]
+	myVersion := myState.Version
+	currentData := myState.Data
 
-	for {
-		time.Sleep(interval)
+	canAdvance := true
+	var laggingPeers []string
 
-		n.stateLock.RLock()
-		var peerAddrs []string
-		for id, state := range n.StateMap {
-			if id != n.ID && state.Address != "" {
-				peerAddrs = append(peerAddrs, state.Address)
-			}
+	for id, state := range n.StateMap {
+		if id == n.ID {
+			continue
 		}
-		n.stateLock.RUnlock()
+		// ignore pure placeholders that haven't reported in yet
+		if state.Version < 0 {
+			canAdvance = false
+			laggingPeers = append(laggingPeers, id)
+			continue
+		}
+		if state.Version < myVersion {
+			canAdvance = false
+			laggingPeers = append(laggingPeers, id)
+		}
+	}
+	n.stateLock.RUnlock()
 
-		if len(peerAddrs) == 0 {
+	if canAdvance {
+		if currentData == "" || strings.HasPrefix(currentData, "Round") {
+			currentData = fmt.Sprintf("Round %d Payload", myVersion+1)
+		}
+		n.UpdateOwnData(currentData)
+		fmt.Printf("[%s] 🚀 [%s] Math confirmation reached! Advanced to Round %d\n",
+			getCurrentTimestamp(), n.ID, myVersion+1)
+	} else {
+		fmt.Printf("[%s] ⏳ [%s] Blocked at Round %d. Waiting on peers: %v\n",
+			getCurrentTimestamp(), n.ID, myVersion, laggingPeers)
+	}
+}
+
+func (n *Node) getPeerAddresses() []string {
+	n.stateLock.Lock()
+	defer n.stateLock.Unlock()
+
+	now := nowUnixNano()
+	seen := make(map[string]bool)
+	var peers []string
+
+	for key, st := range n.StateMap {
+		if key != n.ID && st.ExpiresAt > 0 && now > st.ExpiresAt {
+			fmt.Printf("[%s] 🗑️ [%s] Record for %s expired. Removing from state map.\n",
+				getCurrentTimestamp(), n.ID, key)
+			delete(n.StateMap, key)
 			continue
 		}
 
-		rand.Shuffle(len(peerAddrs), func(i, j int) {
-			peerAddrs[i], peerAddrs[j] = peerAddrs[j], peerAddrs[i]
-		})
-
-		numToSelect := 2
-		if len(peerAddrs) < 2 {
-			numToSelect = len(peerAddrs)
+		if key == n.ID || st.Address == "" || st.Address == n.Address {
+			continue
 		}
 
-		req := GossipMessage{Type: "PULL_REQ", ReplyTo: n.Address}
-		payload, _ := json.Marshal(req)
+		if !seen[st.Address] {
+			seen[st.Address] = true
+			peers = append(peers, st.Address)
+		}
+	}
 
-		for _, targetAddr := range peerAddrs[:numToSelect] {
-			fmt.Printf("[%s] peers are: %v", n.ID, peerAddrs)
+	return peers
+}
+
+func (n *Node) StartGossiping(interval time.Duration, fanout int) {
+	for {
+		time.Sleep(interval)
+
+		// keep your current round logic
+		n.evaluateRoundProgress()
+
+		peers := n.getPeerAddresses()
+		if len(peers) == 0 {
+			continue
+		}
+
+		selected := randomSample(peers, fanout)
+
+		req := GossipMessage{
+			Type:          "PULL_REQUEST",
+			SenderAddress: n.Address,
+			SenderID:      n.ID,
+		}
+
+		payload, err := json.Marshal(req)
+		if err != nil {
+			continue
+		}
+
+		for _, targetAddr := range selected {
 			n.sendUDP(targetAddr, payload)
 		}
 	}
@@ -260,26 +499,39 @@ func (n *Node) StartGossiping(interval time.Duration) {
 func (n *Node) sendUDP(targetAddress string, payload []byte) {
 	addr, err := net.ResolveUDPAddr("udp", targetAddress)
 	if err != nil {
+		fmt.Printf("[%s] ❌ [%s] Resolution error for peer %s: %v\n",
+			getCurrentTimestamp(), n.ID, targetAddress, err)
 		return
 	}
+
 	conn, err := net.DialUDP("udp", nil, addr)
 	if err != nil {
+		fmt.Printf("[%s] ❌ [%s] Dial error to peer %s: %v\n",
+			getCurrentTimestamp(), n.ID, targetAddress, err)
 		return
 	}
 	defer conn.Close()
-	conn.Write(payload)
-}
 
-// go run main.go -id "Node-1" -addr "127.0.0.1:8001" -peers "127.0.0.1:8002" -kafka-broker "localhost:9092" -kafka-topic "gossip"
+	_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+
+	if _, err := conn.Write(payload); err != nil {
+		fmt.Printf("[%s] ❌ [%s] Failed to SEND pull request to %s: %v\n",
+			getCurrentTimestamp(), n.ID, targetAddress, err)
+	}
+}
 
 func main() {
 	idFlag := flag.String("id", "Node-1", "Identifier for the node")
 	addrFlag := flag.String("addr", "127.0.0.1:8001", "Address for this node to listen on")
 	peersFlag := flag.String("peers", "", "Comma-separated list of peer addresses")
-	// injectFlag := flag.String("inject", "", "Message to inject to start the gossip")
+	injectFlag := flag.String("inject", "", "Message to inject to start the gossip")
 
-	// New Kafka Flags
-	kafkaBrokerFlag := flag.String("kafka-broker", "", "Kafka broker address (e.g., localhost:9092)")
+	genFlag := flag.Int64("gen", 1, "Generation number for the node")
+	ttlFlag := flag.Duration("ttl", 5*time.Second, "Time to live for gossip records")
+	intervalFlag := flag.Duration("interval", 1*time.Second, "Pull interval")
+	fanoutFlag := flag.Int("fanout", 2, "Number of peers to pull from each round")
+
+	kafkaBrokerFlag := flag.String("kafka-broker", "", "Kafka broker address")
 	kafkaTopicFlag := flag.String("kafka-topic", "gossip-events", "Kafka topic to publish to")
 
 	flag.Parse()
@@ -289,15 +541,23 @@ func main() {
 		initialPeers = strings.Split(*peersFlag, ",")
 	}
 
-	node := NewNode(*idFlag, *addrFlag, initialPeers, *kafkaBrokerFlag, *kafkaTopicFlag)
+	node := NewNode(
+		*idFlag,
+		*addrFlag,
+		*genFlag,
+		*ttlFlag,
+		initialPeers,
+		*kafkaBrokerFlag,
+		*kafkaTopicFlag,
+	)
 
 	go node.StartListening()
-	go node.StartGossiping(3 * time.Second)
+	go node.StartGossiping(*intervalFlag, *fanoutFlag)
 
-	// if *injectFlag != "" {
-	// 	time.Sleep(1 * time.Second)
-	// 	node.UpdateOwnData(*injectFlag)
-	// }
+	if *injectFlag != "" {
+		time.Sleep(1 * time.Second)
+		node.UpdateOwnData(*injectFlag)
+	}
 
 	select {}
 }
