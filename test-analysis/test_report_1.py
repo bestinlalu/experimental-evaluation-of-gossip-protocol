@@ -14,7 +14,7 @@ DB_CONFIG = {
     'connect_timeout': 10
 }
 POLL_INTERVAL = 5 
-TARGET_UID_COUNT = 10
+TARGET_UID_COUNT = 100
 
 def get_db_connection():
     try:
