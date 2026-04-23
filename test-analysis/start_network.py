@@ -6,11 +6,11 @@ import random
 HOSTS = ["152.7.179.141", "152.7.179.79"]
 START_PORT = 6000
 END_PORT = 8000
-NUM_NODES = 100
+NUM_NODES = 5
 PEERS_PER_NODE = int(NUM_NODES * 0.3)  # Each node knows 30% of the previous nodes, rounded down
 
 MANAGER_PORT = 8082
-STRATEGY = "PUSH"
+STRATEGY = "PULL"
 KAFKA_BROKER = "152.7.179.141:9092"
 TOPIC = "gossip"
 

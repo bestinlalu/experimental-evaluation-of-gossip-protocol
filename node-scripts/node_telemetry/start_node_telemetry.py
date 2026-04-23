@@ -1,70 +1,85 @@
 import psutil
 import time
-import json
 import argparse
-import threading
+import json
+import os
 from datetime import datetime
 from kafka import KafkaProducer
 
-def get_node_metrics():
-    """Captures CPU, RAM, and Disk I/O."""
-    cpu = psutil.cpu_percent(interval=1.0)
-    ram = psutil.virtual_memory().percent
-    io = psutil.disk_io_counters()
-    return {
-        "cpu": cpu,
-        "ram": ram,
-        "io_read": io.read_bytes,
-        "io_write": io.write_bytes
-    }
+def get_pid_by_port(port):
+    """Finds the process listening on the specified port."""
+    for proc in psutil.process_iter(['pid']):
+        try:
+            for conn in proc.connections(kind='inet'):
+                if conn.laddr.port == port:
+                    return proc.pid
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
+    return None
+
+def get_io_bytes(pid):
+    """Reads raw rchar (read) and wchar (write) bytes from the proc filesystem."""
+    try:
+        # rchar and wchar represent the total bytes passed through read() and write() syscalls
+        # For a UDP app with no disk activity, this is 100% network traffic.
+        with open(f"/proc/{pid}/io", "r") as f:
+            lines = f.readlines()
+            stats = {line.split(':')[0]: int(line.split(':')[1].strip()) for line in lines}
+            return stats['rchar'], stats['wchar']
+    except (FileNotFoundError, PermissionError):
+        return 0, 0
 
 def start_telemetry(node_addr, broker):
-    """Initializes Kafka producer and starts a 1-second collection loop."""
-    try:
-        producer = KafkaProducer(
-            bootstrap_servers=[broker],
-            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-            # Ensure high reliability for metrics
-            acks=1 
-        )
-        print(f"🚀 Telemetry started for {node_addr}. Sending to Broker: {broker}")
-    except Exception as e:
-        print(f"❌ Failed to connect to Kafka Broker: {e}")
+    producer = KafkaProducer(
+        bootstrap_servers=[broker],
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    )
+
+    port = int(node_addr.split(':')[-1])
+    pid = get_pid_by_port(port)
+
+    if not pid:
+        print(f"❌ No node found on port {port}")
         return
 
-    def run():
-        while True:
-            metrics = get_node_metrics()
-            payload = {
-                "node_address": node_addr,
-                "cpu": metrics["cpu"],
-                "ram": metrics["ram"],
-                "io_read": metrics["io_read"],
-                "io_write": metrics["io_write"],
-                "ts": datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f')
-            }
-            
-            # Send to the dedicated telemetry topic
-            producer.send('metrics', payload)
-            time.sleep(1)
+    print(f"✅ Monitoring PID {pid} for Node {node_addr}")
+    
+    # Initial "Odometer" readings
+    last_read, last_write = get_io_bytes(pid)
+    proc = psutil.Process(pid)
 
-    # Run in a background thread so the node can keep gossiping
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Node Metrics Producer")
-    parser.add_argument("-addr", help="This Node's Address (e.g. 152.7.179.79:6981)")
-    parser.add_argument("-kafka-broker", help="Remote Kafka Broker IP (e.g. 152.7.179.141:9092)")
-    
-    args = parser.parse_args()
-    
-    # This keeps the script alive for testing; 
-    # In your real node code, this would be part of your main startup logic
-    start_telemetry(args.addr, args.kafkabroker)
-    
     try:
         while True:
-            time.sleep(10)
+            # 1. CPU and RAM
+            cpu = proc.cpu_percent(interval=None)
+            ram = proc.memory_info().rss / (1024 * 1024)
+
+            # 2. Per-PID Network Bytes (Deltas)
+            current_read, current_write = get_io_bytes(pid)
+            delta_read = current_read - last_read
+            delta_write = current_write - last_write
+            
+            # Update anchors
+            last_read, last_write = current_read, current_write
+
+            payload = {
+                "nodeAddress": node_addr,
+                "cpuPercentage": cpu,
+                "memoryPercentage": round(ram, 2),
+                "io_read_mbytes": delta_read,   # Now sending raw BYTES
+                "io_write_mbytes": delta_write, # Now sending raw BYTES
+                "timestamp": datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3]
+            }
+
+            producer.send('metrics', payload)
+            time.sleep(1)
     except KeyboardInterrupt:
-        print("🛑 Telemetry stopped.")
+        print("Stopping...")
+
+if __name__ == "__main__":
+    time.sleep(5)  # Wait for the node to start and bind to the port
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-addr", required=True)
+    parser.add_argument("-kafka-broker", required=True)
+    args = parser.parse_args()
+    start_telemetry(args.addr, args.kafka_broker)

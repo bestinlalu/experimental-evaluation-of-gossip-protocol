@@ -23,7 +23,7 @@ def clear_gossip_tables():
             cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
             
             # Truncate tables to wipe all data and reset increments
-            tables = ["ActionRecord", "GossipRecord"]
+            tables = ["ActionRecord", "GossipRecord", "MetricsEvent"]
             
             for table in tables:
                 print(f"   ┣ Clearing {table}...")

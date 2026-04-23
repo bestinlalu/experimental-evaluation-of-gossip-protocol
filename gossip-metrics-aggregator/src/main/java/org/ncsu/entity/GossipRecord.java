@@ -17,6 +17,7 @@ public class GossipRecord extends PanacheEntity {
     String uid;
     String data;
     Integer ttl;
+    String neighbors;
 
     public GossipRecord() {}
 
@@ -30,5 +31,6 @@ public class GossipRecord extends PanacheEntity {
         this.uid = gossipDigest.getUid();
         this.data = gossipDigest.getData();
         this.ttl = gossipDigest.getTtl();
+        this.neighbors = String.join(",", gossipDigest.getNeighbors());
     }
 }

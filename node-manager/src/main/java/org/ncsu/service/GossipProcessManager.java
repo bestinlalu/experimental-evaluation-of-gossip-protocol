@@ -81,6 +81,7 @@ public class GossipProcessManager {
         ProcessBuilder pbtl = new ProcessBuilder(telemetryCommand);
         // pb.directory(new File("/path/to/your/go/project"));
         pb.inheritIO();
+        pbtl.inheritIO();
 
         Process process = pb.start();
         Process telemetry = pbtl.start();

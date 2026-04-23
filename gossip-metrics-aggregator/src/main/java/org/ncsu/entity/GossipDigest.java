@@ -1,6 +1,7 @@
 package org.ncsu.entity;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public class GossipDigest {
 
@@ -11,11 +12,12 @@ public class GossipDigest {
     LocalDateTime forwarderTimestamp;
     String data;
     Integer ttl;
+    List<String> neighbors;;
 
     public GossipDigest()  {}
 
     public GossipDigest(String uid, Long generation, Integer version, LocalDateTime creationTimestamp,
-                        LocalDateTime forwarderTimestamp, String data, Integer ttl) {
+                        LocalDateTime forwarderTimestamp, String data, Integer ttl, List<String> neighbors) {
         this.uid = uid;
         this.generation = generation;
         this.version = version;
@@ -23,6 +25,7 @@ public class GossipDigest {
         this.forwarderTimestamp = forwarderTimestamp;
         this.data = data;
         this.ttl = ttl;
+        this.neighbors = neighbors;
     }
 
     public Long getGeneration() {
@@ -77,5 +80,13 @@ public class GossipDigest {
 
     public void setTtl(Integer ttl) {
         this.ttl = ttl;
+    }
+
+    public List<String> getNeighbors() {
+        return neighbors;
+    }
+
+    public void setNeighbors(List<String> neighbors) {
+        this.neighbors = neighbors;
     }
 }

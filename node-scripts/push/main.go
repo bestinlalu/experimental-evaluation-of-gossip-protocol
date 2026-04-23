@@ -44,13 +44,14 @@ type GossipMessage struct {
 // --- Kafka Structs ---
 
 type GossipDigest struct {
-	UID                string `json:"uid"`
-	Generation         int64  `json:"generation"`
-	Version            int64  `json:"version"`
-	ForwarderTimestamp string `json:"forwarderTimestamp"`
-	CreationTimestamp  string `json:"creationTimestamp"`
-	Data               string `json:"data"`
-	TTL                int64  `json:"ttl"`
+	UID                string   `json:"uid"`
+	Generation         int64    `json:"generation"`
+	Version            int64    `json:"version"`
+	ForwarderTimestamp string   `json:"forwarderTimestamp"`
+	CreationTimestamp  string   `json:"creationTimestamp"`
+	Data               string   `json:"data"`
+	TTL                int64    `json:"ttl"`
+	Neighbors          []string `json:"neighbors"`
 }
 
 type KafkaEvent struct {
@@ -195,6 +196,15 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 	var newKafkaEvents []KafkaEvent
 	now := time.Now().UnixNano()
 
+	// --- 1. Snapshot the current neighbor list ---
+	// This captures who the node currently knows before processing new info
+	var currentNeighbors []string
+	for id := range n.StateMap {
+		if id != n.ID {
+			currentNeighbors = append(currentNeighbors, n.Address)
+		}
+	}
+
 	for id, incState := range incoming {
 		if id == n.ID {
 			continue
@@ -246,6 +256,7 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 					ForwarderTimestamp: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 					Data:               incState.Data,
 					TTL:                (incState.ExpiresAt - incState.Timestamp) / int64(time.Second),
+					Neighbors:          currentNeighbors,
 				},
 			})
 		}
