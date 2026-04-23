@@ -10,7 +10,7 @@ NUM_NODES = 5
 PEERS_PER_NODE = int(NUM_NODES * 0.3)  # Each node knows 30% of the previous nodes, rounded down
 
 MANAGER_PORT = 8082
-STRATEGY = "PULL"
+STRATEGY = "PUSH"
 KAFKA_BROKER = "152.7.179.141:9092"
 TOPIC = "gossip"
 

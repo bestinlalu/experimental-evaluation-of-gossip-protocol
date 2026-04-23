@@ -344,7 +344,7 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 	var currentNeighbors []string
 	for id := range n.StateMap {
 		if id != n.ID {
-			currentNeighbors = append(currentNeighbors, n.Address)
+			currentNeighbors = append(currentNeighbors, n.StateMap[id].Address)
 		}
 	}
 
