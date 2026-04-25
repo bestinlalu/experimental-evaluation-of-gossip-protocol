@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 
 # --- CONFIGURATION ---
 DB_CONFIG = {
-    'host': '152.7.179.141',
+    'host': '152.7.179.8',
     'database': 'gossipdb',
     'user': 'root',
     'password': 'password',
@@ -23,7 +23,7 @@ def get_db_connection():
         conn.autocommit = True
         return conn
     except Error as e:
-        print(f"❌ Error connecting to MySQL: {e}")
+        print(f"Error connecting to MySQL: {e}")
         return None
 
 def fetch_data_from_mysql():
@@ -42,7 +42,7 @@ def fetch_data_from_mysql():
             return df
 
     except Exception as e:
-        print(f"❌ Error fetching data: {e}")
+        print(f"Error fetching data: {e}")
         return None
 
 def plot_metrics(df):
@@ -83,7 +83,7 @@ def plot_metrics(df):
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.savefig('mysql_gossip_metrics.png')
-    print("✅ Graph saved as mysql_gossip_metrics.png")
+    print("Graph saved as mysql_gossip_metrics.png")
     plt.show()
 
 if __name__ == "__main__":

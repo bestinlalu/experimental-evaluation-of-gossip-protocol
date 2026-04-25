@@ -215,7 +215,7 @@ func (n *Node) mergeState(msg GossipMessage) {
 
 		if isUpdated && n.kafkaWriter != nil && incState.ID != "" {
 			// Get current neighbors for Kafka
-			var currentNeighbors []string
+			currentNeighbors := []string{}
 			for _, s := range n.StateMap {
 				if s.Address != "" && s.Address != n.Address {
 					currentNeighbors = append(currentNeighbors, s.Address)

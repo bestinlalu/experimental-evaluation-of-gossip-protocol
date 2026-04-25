@@ -13,7 +13,7 @@ DB_CONFIG = {
 def clear_gossip_tables():
     connection = None
     try:
-        print(f"🧹 Connecting to {DB_CONFIG['host']} to clear records...")
+        print(f"Connecting to {DB_CONFIG['host']} to clear records...")
         connection = mysql.connector.connect(**DB_CONFIG)
         
         if connection.is_connected():
@@ -23,10 +23,10 @@ def clear_gossip_tables():
             cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
             
             # Truncate tables to wipe all data and reset increments
-            tables = ["ActionRecord", "GossipRecord", "MetricsEvent"]
+            tables = ["ActionRecord", "GossipRecord"]
             
             for table in tables:
-                print(f"   ┣ Clearing {table}...")
+                print(f"Clearing {table}...")
                 cursor.execute(f"TRUNCATE TABLE {table};")
             
             cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")

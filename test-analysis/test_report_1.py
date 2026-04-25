@@ -1,3 +1,4 @@
+import argparse
 import time
 import mysql.connector
 from mysql.connector import Error
@@ -6,7 +7,7 @@ import statistics
 
 # --- CONFIGURATION ---
 DB_CONFIG = {
-    'host': '152.7.179.141',
+    'host': '152.7.179.8',
     'database': 'gossipdb',
     'user': 'root',
     'password': 'password',
@@ -22,14 +23,14 @@ def get_db_connection():
         conn.autocommit = True
         return conn
     except Error as e:
-        print(f"❌ Error connecting to MySQL: {e}")
+        print(f"Error connecting to MySQL: {e}")
         return None
 
 def monitor_convergence():
     conn = get_db_connection()
     if not conn: return
 
-    print(f"🚀 Starting Seek-Based Optimized Monitor...")
+    print(f"Starting Seek-Based Optimized Monitor...")
     
     try:
         # Set session to UTC to match VM/DB timestamps
@@ -42,8 +43,6 @@ def monitor_convergence():
         cursor_gossip = conn.cursor(dictionary=True, buffered=True)
         
         # --- INITIAL ANCHOR SETUP ---
-        cursor_gossip.execute("SELECT MAX(id) as max_id FROM GossipRecord")
-        initial = cursor_gossip.fetchone()
         # Start from the current max ID to only monitor NEW gossip, 
         # or 0 if starting a fresh experiment
         last_id = 0
@@ -72,7 +71,7 @@ def monitor_convergence():
             total_active = len(active_nodes)
             
             if total_active == 0:
-                print(f"[{time.strftime('%X')}] ⚠️ No active nodes detected. Waiting...")
+                print(f"[{time.strftime('%X')}] No active nodes detected. Waiting...")
                 time.sleep(POLL_INTERVAL)
                 continue
 
@@ -85,7 +84,7 @@ def monitor_convergence():
             cursor_gossip.execute(query, (last_id,))
             rows = cursor_gossip.fetchall()
 
-            print(f"🔍 [{time.strftime('%X')}] Polled {len(rows)} new gossip records since ID {last_id}. Active Nodes: {total_active}")
+            print(f"[{time.strftime('%X')}] Polled {len(rows)} new gossip records since ID {last_id}. Active Nodes: {total_active}")
 
             if rows:
                 for row in rows:
@@ -132,13 +131,13 @@ def monitor_convergence():
                     if len(reported_uids) >= TARGET_UID_COUNT:
                         break
 
-            print(f"🔍 [{time.strftime('%X')}] ID Anchor: {last_id} | Active: {total_active} | Converged: {len(reported_uids)}")
+            print(f"[{time.strftime('%X')}] ID Anchor: {last_id} | Active: {total_active} | Converged: {len(reported_uids)}")
             time.sleep(POLL_INTERVAL)
 
         print_final_stats(convergence_durations, total_active)
 
     except Error as e:
-        print(f"❌ Database error: {e}")
+        print(f"Database error: {e}")
     finally:
         if conn.is_connected():
             cursor_nodes.close()
@@ -148,7 +147,7 @@ def monitor_convergence():
 def print_final_stats(durations, node_count):
     if not durations: return
     print("\n" + "="*40)
-    print(f"📊 FINAL GOSSIP REPORT ({node_count} Nodes)")
+    print(f"FINAL GOSSIP REPORT ({node_count} Nodes)")
     print("="*40)
     print(f"{'Mean Duration':<20} | {statistics.mean(durations):.4f}s")
     print(f"{'Min Duration':<20} | {min(durations):.4f}s")
@@ -157,4 +156,9 @@ def print_final_stats(durations, node_count):
     print("="*40)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-interval", type=int, required=True, default=5)
+    parser.add_argument("-uid-count", type=int, required=True, default=10)
+    POLL_INTERVAL = parser.parse_args().interval
+    TARGET_UID_COUNT = parser.parse_args().uid_count
     monitor_convergence()

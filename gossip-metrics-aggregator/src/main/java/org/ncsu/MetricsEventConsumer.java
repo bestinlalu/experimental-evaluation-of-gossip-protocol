@@ -5,6 +5,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.eclipse.microprofile.reactive.messaging.Acknowledgment;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.jboss.logging.Logger;
 import org.ncsu.entity.MetricsEvent;
@@ -24,6 +25,7 @@ public class MetricsEventConsumer {
     ObjectMapper mapper = new ObjectMapper();
 
     @Incoming("metrics")
+    @Acknowledgment(Acknowledgment.Strategy.POST_PROCESSING)
     public void consume(ConsumerRecord<String, String> record) {
         try {
 //            LOG.info("Gossip received: " + record.value());

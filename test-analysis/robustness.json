@@ -1,0 +1,140 @@
+{
+    "created_addresses": [
+        "152.7.179.79:6964",
+        "152.7.179.141:7586",
+        "152.7.179.141:7497",
+        "152.7.179.79:7830",
+        "152.7.179.79:7860",
+        "152.7.179.141:7121",
+        "152.7.179.79:7784",
+        "152.7.179.141:7112",
+        "152.7.179.79:7858",
+        "152.7.179.141:7511"
+    ],
+    "injected_faulty_peer": "192.0.2.170:5690",
+    "payload": [
+        {
+            "host": "152.7.179.79",
+            "actionPort": 6964,
+            "managerPort": 8082,
+            "peers": [],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.141",
+            "actionPort": 7586,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.79:6964"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.141",
+            "actionPort": 7497,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.141:7586",
+                "152.7.179.79:6964"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.79",
+            "actionPort": 7830,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.79:6964",
+                "152.7.179.141:7497",
+                "152.7.179.141:7586"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.79",
+            "actionPort": 7860,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.141:7586",
+                "152.7.179.79:6964",
+                "152.7.179.79:7830"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.141",
+            "actionPort": 7121,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.79:6964",
+                "152.7.179.141:7497",
+                "152.7.179.141:7586"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.79",
+            "actionPort": 7784,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.79:7830",
+                "152.7.179.141:7497",
+                "152.7.179.141:7121"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.141",
+            "actionPort": 7112,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.79:7784",
+                "152.7.179.79:7860",
+                "152.7.179.79:7830"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.79",
+            "actionPort": 7858,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.141:7121",
+                "152.7.179.79:7830",
+                "152.7.179.79:7860"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        },
+        {
+            "host": "152.7.179.141",
+            "actionPort": 7511,
+            "managerPort": 8082,
+            "peers": [
+                "152.7.179.141:7497",
+                "152.7.179.79:6964",
+                "192.0.2.170:5690"
+            ],
+            "strategy": "PUSHPULL",
+            "kafkaBroker": "152.7.179.141:9092",
+            "topic": "gossip"
+        }
+    ]
+}

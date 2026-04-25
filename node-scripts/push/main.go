@@ -198,7 +198,7 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 
 	// --- 1. Snapshot the current neighbor list ---
 	// This captures who the node currently knows before processing new info
-	var currentNeighbors []string
+	currentNeighbors := []string{}
 	for id := range n.StateMap {
 		if id != n.ID {
 			currentNeighbors = append(currentNeighbors, n.StateMap[id].Address)
