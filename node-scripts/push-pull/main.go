@@ -50,7 +50,8 @@ type GossipDigest struct {
 	CreationTimestamp  string   `json:"creationTimestamp"`
 	Data               string   `json:"data"`
 	TTL                int64    `json:"ttl"`
-	Neighbors          []string `json:"neighbors"`
+	ActiveNeighbors    []string `json:"activeNeighbors"`
+    InactiveNeighbors  []string `json:"inactiveNeighbors"`
 }
 
 // --- Helper functions ---
@@ -61,8 +62,16 @@ func generateUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
+func formatUnixNano(ts int64) string {
+	return time.Unix(0, ts).UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
 func getCurrentTimestamp() string {
 	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+func nowUnixNano() int64 {
+	return time.Now().UnixNano()
 }
 
 // --- Node Definition ---
@@ -89,6 +98,9 @@ func NewNode(id, address string, generation int64, ttl time.Duration, initialPee
 			Addr:     kafka.TCP(kafkaBroker),
 			Topic:    kafkaTopic,
 			Balancer: &kafka.LeastBytes{},
+			RequiredAcks: kafka.RequireOne,
+			Async:        true,
+			BatchBytes: 10485760,
 		}
 		fmt.Printf("[%s] 📡 [%s] Kafka producer initialized (Broker: %s, Topic: %s)\n", getCurrentTimestamp(), n.ID, kafkaBroker, kafkaTopic)
 	}
@@ -112,6 +124,27 @@ func NewNode(id, address string, generation int64, ttl time.Duration, initialPee
 	}
 
 	return n
+}
+
+func (n *Node) UpdateOwnData(newData string) {
+	n.stateLock.Lock()
+	defer n.stateLock.Unlock()
+
+	state := n.StateMap[n.ID]
+	now := time.Now()
+
+	state.Data = newData
+	state.Version++
+	state.UID = generateUID()
+	state.Timestamp = now.UnixNano()
+	state.ExpiresAt = now.Add(n.TTL).UnixNano()
+	state.Address = n.Address
+	state.ID = n.ID
+
+	n.StateMap[n.ID] = state
+
+	fmt.Printf("[%s] 💓 [%s] Executing Round %d: '%s' [UID: %s]\n",
+		getCurrentTimestamp(), n.ID, state.Version, newData, state.UID)
 }
 
 func (n *Node) StartListening() {
@@ -140,7 +173,7 @@ func (n *Node) StartListening() {
 		n.mergeState(msg)
 
 		if msg.Type == "PUSH_PULL" {
-			n.sendPullResponse(msg.SenderAddress)
+			go n.sendPullResponse(msg.SenderAddress)
 		}
 	}
 }
@@ -179,6 +212,46 @@ func (n *Node) mergeState(msg GossipMessage) {
 	now := time.Now().UnixNano()
 	var newKafkaEvents []KafkaEvent
 
+	activeSet := make(map[string]struct{})
+    inactiveSet := make(map[string]struct{})
+
+    for idOrAddr, st := range n.StateMap {
+        // Skip self
+        if idOrAddr == n.ID || st.ID == n.ID {
+            continue
+        }
+
+        // Determine the display name (ID preferred, fallback to Address)
+        displayName := st.ID
+        if displayName == "" {
+            displayName = st.Address
+        }
+        if displayName == "" {
+            displayName = idOrAddr
+        }
+
+        // Check if the record is active
+        if st.Version >= 0 && st.ExpiresAt > now {
+            activeSet[displayName] = struct{}{}
+        } else {
+            inactiveSet[displayName] = struct{}{}
+        }
+    }
+
+    // Convert sets to slices for JSON (ensures empty list [] instead of null)
+    activeNeighbors := []string{}
+    for addr := range activeSet {
+        activeNeighbors = append(activeNeighbors, addr)
+    }
+
+    inactiveNeighbors := []string{}
+    for addr := range inactiveSet {
+        // Ensure an address doesn't appear in both lists
+        if _, active := activeSet[addr]; !active {
+            inactiveNeighbors = append(inactiveNeighbors, addr)
+        }
+    }
+
 	for id, incState := range msg.State {
 		if id == n.ID || (incState.ExpiresAt > 0 && now > incState.ExpiresAt) {
 			continue
@@ -195,19 +268,19 @@ func (n *Node) mergeState(msg GossipMessage) {
 		isUpdated := false
 		if existingKey == "" {
 			n.StateMap[id] = incState
-			fmt.Printf("[%s] 🔍 [%s] Discovered NEW peer ID: %s (UID: %s)\n", getCurrentTimestamp(), n.ID, id, incState.UID)
+			// fmt.Printf("[%s] 🔍 [%s] Discovered NEW peer ID: %s (UID: %s)\n", getCurrentTimestamp(), n.ID, id, incState.UID)
 			isUpdated = true
 		} else {
 			localState := n.StateMap[existingKey]
 
 			// Identity Migration check (IP placeholder -> Node ID)
 			if existingKey != id && !strings.Contains(id, ":") {
-				fmt.Printf("[%s] 🧹 [%s] Removed stale address entry for %s due to new info from %s\n", getCurrentTimestamp(), n.ID, existingKey, id)
+				// fmt.Printf("[%s] 🧹 [%s] Removed stale address entry for %s due to new info from %s\n", getCurrentTimestamp(), n.ID, existingKey, id)
 				delete(n.StateMap, existingKey)
 				n.StateMap[id] = incState
 				isUpdated = true
 			} else if incState.Generation > localState.Generation || (incState.Generation == localState.Generation && incState.Version > localState.Version) {
-				fmt.Printf("[%s] 🔄 [%s] Updated state for %s: '%s' (v%d) [UID: %s]\n", getCurrentTimestamp(), n.ID, id, incState.Data, incState.Version, incState.UID)
+				// fmt.Printf("[%s] 🔄 [%s] Updated state for %s: '%s' (v%d) [UID: %s]\n", getCurrentTimestamp(), n.ID, id, incState.Data, incState.Version, incState.UID)
 				n.StateMap[id] = incState
 				isUpdated = true
 			}
@@ -215,12 +288,6 @@ func (n *Node) mergeState(msg GossipMessage) {
 
 		if isUpdated && n.kafkaWriter != nil && incState.ID != "" {
 			// Get current neighbors for Kafka
-			currentNeighbors := []string{}
-			for _, s := range n.StateMap {
-				if s.Address != "" && s.Address != n.Address {
-					currentNeighbors = append(currentNeighbors, s.Address)
-				}
-			}
 
 			newKafkaEvents = append(newKafkaEvents, KafkaEvent{
 				CreatorAddress:   incState.Address,
@@ -230,11 +297,12 @@ func (n *Node) mergeState(msg GossipMessage) {
 					UID:                incState.UID,
 					Generation:         incState.Generation,
 					Version:            incState.Version,
-					CreationTimestamp:  time.Unix(0, incState.Timestamp).UTC().Format("2006-01-02T15:04:05.000Z"),
+					CreationTimestamp:  formatUnixNano(incState.Timestamp),
 					ForwarderTimestamp: getCurrentTimestamp(),
 					Data:               incState.Data,
 					TTL:                int64(n.TTL.Seconds()),
-					Neighbors:          currentNeighbors,
+					ActiveNeighbors:    activeNeighbors,
+                    InactiveNeighbors:  inactiveNeighbors, 
 				},
 			})
 		}
@@ -248,44 +316,72 @@ func (n *Node) mergeState(msg GossipMessage) {
 	}
 }
 
+func (n *Node) refreshHeartbeat() {
+	n.stateLock.Lock()
+	defer n.stateLock.Unlock()
+
+	state := n.StateMap[n.ID]
+	state.Timestamp = nowUnixNano()
+	state.ExpiresAt = time.Now().Add(n.TTL).UnixNano()
+	n.StateMap[n.ID] = state
+}
+
+func (n *Node) evaluateRoundProgress() {
+    n.stateLock.RLock()
+    myState := n.StateMap[n.ID]
+    myVersion := myState.Version
+    currentData := myState.Data
+
+    totalPeers := 0
+    updatedPeers := 0
+    var laggingPeers []string
+
+    for id, state := range n.StateMap {
+        if id == n.ID {
+            continue
+        }
+        
+        totalPeers++
+        
+        // A peer is "updated" if it has a valid version >= our current version
+        if state.Version >= myVersion {
+            updatedPeers++
+        } else {
+            laggingPeers = append(laggingPeers, id)
+        }
+    }
+    n.stateLock.RUnlock()
+
+    // Handle the case where we have no peers yet
+    canAdvance := false
+    if totalPeers > 0 {
+        participation := float64(updatedPeers) / float64(totalPeers)
+        if participation >= 0.75 {
+            canAdvance = true
+        }
+    }
+
+    if canAdvance {
+        if currentData == "" || strings.HasPrefix(currentData, "Round") {
+            currentData = fmt.Sprintf("Round %d Payload", myVersion+1)
+        }
+        n.UpdateOwnData(currentData)
+        // fmt.Printf("[%s] 🚀 [%s] 75%% Threshold Met (%d/%d)! Advanced to Round %d\n",
+        //     getCurrentTimestamp(), n.ID, updatedPeers, totalPeers, myVersion+1)
+    } else {
+        // fmt.Printf("[%s] ⏳ [%s] Blocked at Round %d. Progress: %d/%d (Need 75%%). Waiting on: %v\n",
+        //     getCurrentTimestamp(), n.ID, myVersion, updatedPeers, totalPeers, laggingPeers)
+        n.refreshHeartbeat()
+    }
+}
+
 func (n *Node) StartGossiping(interval time.Duration, fanout int) {
 	for {
 		time.Sleep(interval)
 
+		n.evaluateRoundProgress()
+
 		n.stateLock.Lock()
-		myState := n.StateMap[n.ID]
-		myState.Timestamp = time.Now().UnixNano()
-		myState.ExpiresAt = time.Now().Add(n.TTL).UnixNano()
-		n.StateMap[n.ID] = myState
-
-		canAdvance := true
-		var lagging []string
-		for id, state := range n.StateMap {
-			if id == n.ID {
-				continue
-			}
-			if state.Version < myState.Version {
-				canAdvance = false
-				// If ID is empty, it's an address placeholder
-				if state.ID != "" {
-					lagging = append(lagging, state.ID)
-				} else {
-					lagging = append(lagging, state.Address)
-				}
-			}
-		}
-
-		if len(n.StateMap) > 1 && canAdvance {
-			myState.Version++
-			myState.UID = generateUID()
-			myState.Data = fmt.Sprintf("Round %d Payload", myState.Version)
-			n.StateMap[n.ID] = myState
-			fmt.Printf("[%s] 💓 [%s] Executing Round %d: '%s' [UID: %s]\n", getCurrentTimestamp(), n.ID, myState.Version, myState.Data, myState.UID)
-			fmt.Printf("[%s] 🚀 [%s] Math confirmation reached! Advanced to Round %d\n", getCurrentTimestamp(), n.ID, myState.Version)
-		} else if len(n.StateMap) > 1 {
-			fmt.Printf("[%s] ⏳ [%s] Blocked at Round %d. Waiting on peers: %v\n", getCurrentTimestamp(), n.ID, myState.Version, lagging)
-		}
-
 		cleanState := n.getCleanStateMap()
 		var peers []string
 		for id, s := range n.StateMap {

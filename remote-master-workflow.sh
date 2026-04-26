@@ -1,5 +1,7 @@
-export VM1_IP="152.7.179.141"
-export VM2_IP="152.7.179.79"
+export VM1_IP="152.7.178.142"
+export VM2_IP="152.7.178.151"
+export VM3_IP="152.7.178.90"
+export VM4_IP="152.7.178.134"
 export USER="blalu"
 
 export DB_USER="root"
@@ -26,7 +28,7 @@ else
     echo "Java 21 available!"
 fi
 
-
+sudo apt install golang-go
 echo "Checking Go installation..."
 if [ ! -f "$GO_DIR/go" ]; then
     echo "Go 1.23 not found! Installing..."
@@ -86,6 +88,7 @@ echo "Configuring MySQL..."
 if sudo mysql -e "SELECT 1;" 2>/dev/null; then
     sudo mysql << SQLEOF
 ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '$DB_PASS';
+UPDATE mysql.user SET Host='%' WHERE User='root' AND Host='localhost';
 CREATE DATABASE IF NOT EXISTS $DB_NAME;
 GRANT ALL PRIVILEGES ON $DB_NAME.* TO 'root'@'%';
 FLUSH PRIVILEGES;
@@ -104,8 +107,8 @@ fi
 # FLUSH PRIVILEGES;
 
 # Allow remote connections
-sudo sed -i 's/bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mysql.conf.d/mysqld.cnf 2>/dev/null || true
-sudo systemctl restart mysql
+# sudo sed -i 's/bind-address.*/bind-address = 0.0.0.0/' /etc/mysql/mysql.conf.d/mysqld.cnf 2>/dev/null || true
+# sudo systemctl restart mysql
 
 # Verify MySQL login
 if mysql -u $DB_USER -p$DB_PASS -e "USE $DB_NAME;" 2>/dev/null; then
@@ -129,7 +132,7 @@ mvn -version
 # ─────────────────────────────────────────
 # Setup Tunneling in local machine
 # ─────────────────────────────────────────
-ssh -L 9090:127.0.0.1:8080 blalu@152.7.179.141
+ssh -L 9090:127.0.0.1:8080 blalu@152.7.178.142
 
 
 # ─────────────────────────────────────────
@@ -140,9 +143,10 @@ sudo apt install ufw
 sudo ufw allow 8080/tcp
 sudo ufw allow 8081/tcp
 sudo ufw allow 8082/tcp
-sudo ufw allow 9000:9005/udp
 sudo ufw allow 6000:8000/udp
-sudo ufw allow from 152.7.179.79  # Allow EVERYTHING from VM2
+sudo ufw allow from $VM2_IP  # Allow EVERYTHING from VM2
+sudo ufw allow from $VM3_IP  # Allow EVERYTHING from VM2
+sudo ufw allow from $VM4_IP  # Allow EVERYTHING from VM2
 sudo ufw allow 9092/tcp           # Specifically allow Kafka
 
 # Check the status to make sure they are active
@@ -173,9 +177,18 @@ echo "Creating gossip topic..."
 bin/kafka-topics.sh --create \
     --bootstrap-server $VM1_IP:9092 \
     --replication-factor 1 \
-    --partitions 1 \
+    --partitions 64 \
     --topic gossip 2>/dev/null || echo "Topic already exists, skipping."
 bin/kafka-topics.sh --list --bootstrap-server $VM1_IP:9092
+# bin/kafka-topics.sh --bootstrap-server $VM1_IP:9092 --delete --topic gossip
+
+bin/kafka-topics.sh --create \
+    --bootstrap-server $VM1_IP:9092 \
+    --replication-factor 1 \
+    --partitions 20 \
+    --topic metrics 2>/dev/null || echo "Topic already exists, skipping."
+bin/kafka-topics.sh --list --bootstrap-server $VM1_IP:9092
+# bin/kafka-topics.sh --bootstrap-server $VM1_IP:9092 --delete --topic metrics
 
 
 # ─────────────────────────────────────────

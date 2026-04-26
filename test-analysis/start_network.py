@@ -4,7 +4,7 @@ import random
 import argparse
 
 # --- CONFIGURATION ---
-HOSTS = ["152.7.179.8", "152.7.179.108"]
+HOSTS = ["152.7.178.142", "152.7.178.134", "152.7.178.151", "152.7.178.90"]
 START_PORT = 6000
 END_PORT = 8000
 NUM_NODES = 10
@@ -12,7 +12,7 @@ PEERS_PER_NODE = int(NUM_NODES * 0.3)  # Each node knows 30% of the previous nod
 
 MANAGER_PORT = 8082
 STRATEGY = "PUSH"
-KAFKA_BROKER = "152.7.179.8:9092"
+KAFKA_BROKER = "152.7.178.142:9092"
 TOPIC = "gossip"
 
 URL = "http://localhost:9090/action/start"

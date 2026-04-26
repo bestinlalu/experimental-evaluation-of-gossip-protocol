@@ -15,7 +15,8 @@ public interface NodeManagerService {
 
     @POST
     @Path("/start")
-    Response startNode(@HeaderParam("address") String address,
+    Response startNode(@HeaderParam("id") String id,
+                       @HeaderParam("address") String address,
                        @HeaderParam("port") Integer actionPort,
                        @HeaderParam("peers") List<String> peers,
                        @HeaderParam("kafka-broker") String kafkaBroker,

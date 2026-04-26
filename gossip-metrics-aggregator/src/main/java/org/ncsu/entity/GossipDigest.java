@@ -12,12 +12,14 @@ public class GossipDigest {
     LocalDateTime forwarderTimestamp;
     String data;
     Integer ttl;
-    List<String> neighbors;;
+    List<String> activeNeighbors;
+    List<String> inactiveNeighbors;
 
     public GossipDigest()  {}
 
     public GossipDigest(String uid, Long generation, Integer version, LocalDateTime creationTimestamp,
-                        LocalDateTime forwarderTimestamp, String data, Integer ttl, List<String> neighbors) {
+                        LocalDateTime forwarderTimestamp, String data, Integer ttl, List<String> activeNeighbors, 
+                        List<String> inactiveNeighbors) {
         this.uid = uid;
         this.generation = generation;
         this.version = version;
@@ -25,7 +27,8 @@ public class GossipDigest {
         this.forwarderTimestamp = forwarderTimestamp;
         this.data = data;
         this.ttl = ttl;
-        this.neighbors = neighbors;
+        this.activeNeighbors = activeNeighbors;
+        this.inactiveNeighbors = inactiveNeighbors;
     }
 
     public Long getGeneration() {
@@ -82,11 +85,19 @@ public class GossipDigest {
         this.ttl = ttl;
     }
 
-    public List<String> getNeighbors() {
-        return neighbors;
+    public List<String> getActiveNeighbors() {
+        return activeNeighbors;
     }
 
-    public void setNeighbors(List<String> neighbors) {
-        this.neighbors = neighbors;
+    public void setActiveNeighbors(List<String> activeNeighbors) {
+        this.activeNeighbors = activeNeighbors;
+    }
+
+    public List<String> getInactiveNeighbors() {
+        return inactiveNeighbors;
+    }
+
+    public void setInactiveNeighbors(List<String> inactiveNeighbors) {
+        this.inactiveNeighbors = inactiveNeighbors;
     }
 }

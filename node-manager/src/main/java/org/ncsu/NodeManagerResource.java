@@ -35,6 +35,7 @@ public class NodeManagerResource {
     @Produces(MediaType.APPLICATION_JSON)
     @Consumes(MediaType.APPLICATION_JSON)
     public Response start(
+            @HeaderParam("id") String id,
             @HeaderParam("address") String address,
             @HeaderParam("port") Integer port,
             @HeaderParam("peers") List<String> peers,
@@ -53,7 +54,7 @@ public class NodeManagerResource {
         }
 
         try {
-            processManager.startNode(address, port, peers, kafkaTopic, kafkaBroker, strategy);
+            processManager.startNode(id, address, port, peers, kafkaTopic, kafkaBroker, strategy);
 
             LOG.info("Process started successfully");
 

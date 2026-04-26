@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 
 # --- CONFIGURATION ---
 DB_CONFIG = {
-    'host': '152.7.179.8',
+    'host': '152.7.178.142',
     'database': 'gossipdb',
     'user': 'root',
     'password': 'password',
@@ -63,8 +63,8 @@ def plot_metrics(df):
     metrics = [
         ('cpuPercentage', 'CPU Usage (%)', axes[0, 0]),
         ('memoryPercentage', 'Memory Usage (MB)', axes[0, 1]),
-        ('io_read_mbytes', 'I/O Read (MB/s)', axes[1, 0]),
-        ('io_write_mbytes', 'I/O Write (MB/s)', axes[1, 1])
+        ('io_read_mbytes', 'I/O Read (bps)', axes[1, 0]),
+        ('io_write_mbytes', 'I/O Write (bps)', axes[1, 1])
     ]
 
     for col_name, ylabel, ax in metrics:

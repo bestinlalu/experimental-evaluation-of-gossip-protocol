@@ -1,6 +1,7 @@
 package org.ncsu.entity;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntity;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 
 import java.time.LocalDateTime;
@@ -17,7 +18,10 @@ public class GossipRecord extends PanacheEntity {
     String uid;
     String data;
     Integer ttl;
-    String neighbors;
+    @Column(columnDefinition = "LONGTEXT")
+    String activeNeighbors;
+    @Column(columnDefinition = "LONGTEXT")
+    String inactiveNeighbors;
 
     public GossipRecord() {}
 
@@ -31,6 +35,7 @@ public class GossipRecord extends PanacheEntity {
         this.uid = gossipDigest.getUid();
         this.data = gossipDigest.getData();
         this.ttl = gossipDigest.getTtl();
-        this.neighbors = String.join(",", gossipDigest.getNeighbors());
+        this.activeNeighbors = String.join(",", gossipDigest.getActiveNeighbors());
+        this.inactiveNeighbors = String.join(",", gossipDigest.getInactiveNeighbors());
     }
 }

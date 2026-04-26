@@ -1,5 +1,5 @@
 VM1_IP="152.7.177.154"
-VM2_IP"="152.7.177.182"
+VM2_IP="152.7.177.182"
 USER="blalu"
 
 GO_DIR="/home/sshunmu2/goroot/go/bin"
@@ -23,7 +23,7 @@ else
     echo "Java 21 available!"
 fi
 
-
+sudo apt install golang-go 
 echo "Checking Go installation..."
 if [ ! -f "$GO_DIR/go" ]; then
     echo "Go 1.23 not found! Installing..."
@@ -79,6 +79,7 @@ mvn -version
 # Setup ufw firewall rules on remote machines
 # ─────────────────────────────────────────
 sudo apt install ufw
+sudo ufw enable
 # Allow the specific ports
 sudo ufw allow 8082/tcp
 sudo ufw allow 9000:9005/udp

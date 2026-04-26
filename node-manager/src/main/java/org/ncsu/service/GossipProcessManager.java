@@ -17,7 +17,7 @@ public class GossipProcessManager {
     private final Map<Integer, Integer> nodeRestarts = new HashMap<>();
     private final Map<Integer, Process> activeTelemetrys = new ConcurrentHashMap<>();
 
-    public void startNode(String address, Integer port, List<String> peers, String kafkaTopic, String kafkaBroker, String strategy) throws Exception {
+    public void startNode(String id, String address, Integer port, List<String> peers, String kafkaTopic, String kafkaBroker, String strategy) throws Exception {
         if (activeNodes.containsKey(port) && activeNodes.get(port).isAlive()) {
             throw new IllegalStateException("Node already running on port " + port);
         }
@@ -41,7 +41,7 @@ public class GossipProcessManager {
         }
 //        command.add("main.go");
         command.add("-id");
-        command.add("Node-" + port);
+        command.add(id);
         command.add("-addr");
         command.add(address + ":" + port);
 

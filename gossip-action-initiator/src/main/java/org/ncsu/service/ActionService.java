@@ -29,6 +29,7 @@ public class ActionService {
 
     Map<String, List<ActionRecord>> activeNodes = new HashMap<>();
     Map<String, List<ActionRecord>> inactiveNodes = new HashMap<>();
+    Integer id = 0;
 
 
     public Boolean initiateAction(List<ActionRecord> actionRecords, Action action) {
@@ -84,7 +85,7 @@ public class ActionService {
                         actionRecord = actionRecordService.createActionRecord(actionRecord, response, action);
 
                     } else if (action == Action.START) {
-                        response = nodeManagerService.startNode(actionRecord.getHost(), actionRecord.getActionPort(), actionRecord.getPeers(),
+                        response = nodeManagerService.startNode(String.valueOf(id++), actionRecord.getHost(), actionRecord.getActionPort(), actionRecord.getPeers(),
                                 actionRecord.getKafkaBroker(), actionRecord.getTopic(), actionRecord.getStrategy().toString());
 
                         if (response.getStatus() != Response.Status.OK.getStatusCode()) {

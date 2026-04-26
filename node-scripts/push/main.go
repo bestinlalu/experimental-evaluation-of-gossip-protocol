@@ -51,7 +51,8 @@ type GossipDigest struct {
 	CreationTimestamp  string   `json:"creationTimestamp"`
 	Data               string   `json:"data"`
 	TTL                int64    `json:"ttl"`
-	Neighbors          []string `json:"neighbors"`
+	ActiveNeighbors    []string `json:"activeNeighbors"`
+    InactiveNeighbors  []string `json:"inactiveNeighbors"`
 }
 
 type KafkaEvent struct {
@@ -63,6 +64,14 @@ type KafkaEvent struct {
 
 func getCurrentTimestamp() string {
 	return time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+func formatUnixNano(ts int64) string {
+	return time.Unix(0, ts).UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+func nowUnixNano() int64 {
+	return time.Now().UnixNano()
 }
 
 // --- Node Definition ---
@@ -89,6 +98,9 @@ func NewNode(id, address string, generation int64, ttl time.Duration, initialPee
 			Addr:     kafka.TCP(kafkaBroker),
 			Topic:    kafkaTopic,
 			Balancer: &kafka.LeastBytes{},
+			RequiredAcks: kafka.RequireOne,
+			Async:        true,
+			BatchBytes: 10485760,
 		}
 		fmt.Printf("[%s] 📡 [%s] Kafka producer initialized (Broker: %s, Topic: %s)\n", getCurrentTimestamp(), n.ID, kafkaBroker, kafkaTopic)
 	}
@@ -168,7 +180,7 @@ func (n *Node) StartListening() {
 	}
 	defer conn.Close()
 
-	fmt.Printf("[%s] 🎧 [%s] Listening for gossip on %s...\n", getCurrentTimestamp(), n.ID, n.Address)
+	// fmt.Printf("[%s] 🎧 [%s] Listening for gossip on %s...\n", getCurrentTimestamp(), n.ID, n.Address)
 
 	buffer := make([]byte, 65535)
 
@@ -197,13 +209,45 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 	now := time.Now().UnixNano()
 
 	// --- 1. Snapshot the current neighbor list ---
-	// This captures who the node currently knows before processing new info
-	currentNeighbors := []string{}
-	for id := range n.StateMap {
-		if id != n.ID {
-			currentNeighbors = append(currentNeighbors, n.StateMap[id].Address)
-		}
-	}
+	activeSet := make(map[string]struct{})
+    inactiveSet := make(map[string]struct{})
+
+    for idOrAddr, st := range n.StateMap {
+        // Skip self
+        if idOrAddr == n.ID || st.ID == n.ID {
+            continue
+        }
+
+        // Determine the display name (ID preferred, fallback to Address)
+        displayName := st.ID
+        if displayName == "" {
+            displayName = st.Address
+        }
+        if displayName == "" {
+            displayName = idOrAddr
+        }
+
+        // Check if the record is active
+        if st.Version >= 0 && st.ExpiresAt > now {
+            activeSet[displayName] = struct{}{}
+        } else {
+            inactiveSet[displayName] = struct{}{}
+        }
+    }
+
+    // Convert sets to slices for JSON (ensures empty list [] instead of null)
+    activeNeighbors := []string{}
+    for addr := range activeSet {
+        activeNeighbors = append(activeNeighbors, addr)
+    }
+
+    inactiveNeighbors := []string{}
+    for addr := range inactiveSet {
+        // Ensure an address doesn't appear in both lists
+        if _, active := activeSet[addr]; !active {
+            inactiveNeighbors = append(inactiveNeighbors, addr)
+        }
+    }
 
 	for id, incState := range incoming {
 		if id == n.ID {
@@ -219,11 +263,11 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 
 		if !exists {
 			n.StateMap[id] = incState
-			fmt.Printf("[%s] 🔍 [%s] Discovered NEW peer ID: %s (UID: %s)\n", getCurrentTimestamp(), n.ID, id, incState.UID)
+			// fmt.Printf("[%s] 🔍 [%s] Discovered NEW peer ID: %s (UID: %s)\n", getCurrentTimestamp(), n.ID, id, incState.UID)
 			isUpdated = true
 
 			if _, tempExists := n.StateMap[incState.Address]; tempExists && id != incState.Address {
-				fmt.Printf("[%s] 🧹 [%s] Removed stale address entry for %s due to new info from %s\n", getCurrentTimestamp(), n.ID, incState.Address, id)
+				// fmt.Printf("[%s] 🧹 [%s] Removed stale address entry for %s due to new info from %s\n", getCurrentTimestamp(), n.ID, incState.Address, id)
 				delete(n.StateMap, incState.Address)
 			}
 		} else {
@@ -232,18 +276,17 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 
 			if isNewerGeneration || isNewerVersion {
 				n.StateMap[id] = incState
-				fmt.Printf("[%s] 🔄 [%s] Updated state for %s: '%s' (v%d) [UID: %s]\n", getCurrentTimestamp(), n.ID, id, incState.Data, incState.Version, incState.UID)
+				// fmt.Printf("[%s] 🔄 [%s] Updated state for %s: '%s' (v%d) [UID: %s]\n", getCurrentTimestamp(), n.ID, id, incState.Data, incState.Version, incState.UID)
 				isUpdated = true
 
 				if _, tempExists := n.StateMap[incState.Address]; tempExists && id != incState.Address {
-					fmt.Printf("[%s] 🧹 [%s] Removed stale address entry for %s due to new info from %s\n", getCurrentTimestamp(), n.ID, incState.Address, id)
+					// fmt.Printf("[%s] 🧹 [%s] Removed stale address entry for %s due to new info from %s\n", getCurrentTimestamp(), n.ID, incState.Address, id)
 					delete(n.StateMap, incState.Address)
 				}
 			}
 		}
 
 		if isUpdated && n.kafkaWriter != nil {
-			ts := time.Unix(0, incState.Timestamp).UTC().Format("2006-01-02T15:04:05.000Z")
 			newKafkaEvents = append(newKafkaEvents, KafkaEvent{
 				CreatorAddress:   incState.Address,
 				ForwarderAddress: n.Address,
@@ -252,11 +295,12 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 					UID:                incState.UID,
 					Generation:         incState.Generation,
 					Version:            incState.Version,
-					CreationTimestamp:  ts,
-					ForwarderTimestamp: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+					CreationTimestamp:  formatUnixNano(incState.Timestamp),
+					ForwarderTimestamp: getCurrentTimestamp(),
 					Data:               incState.Data,
 					TTL:                (incState.ExpiresAt - incState.Timestamp) / int64(time.Second),
-					Neighbors:          currentNeighbors,
+					ActiveNeighbors:    activeNeighbors,
+                    InactiveNeighbors:  inactiveNeighbors, 
 				},
 			})
 		}
@@ -280,42 +324,71 @@ func (n *Node) mergeState(incoming map[string]NodeState) {
 	}
 }
 
+func (n *Node) refreshHeartbeat() {
+	n.stateLock.Lock()
+	defer n.stateLock.Unlock()
+
+	state := n.StateMap[n.ID]
+	state.Timestamp = nowUnixNano()
+	state.ExpiresAt = time.Now().Add(n.TTL).UnixNano()
+	n.StateMap[n.ID] = state
+}
+
+func (n *Node) evaluateRoundProgress() {
+    n.stateLock.RLock()
+    myState := n.StateMap[n.ID]
+    myVersion := myState.Version
+    currentData := myState.Data
+
+    totalPeers := 0
+    updatedPeers := 0
+    var laggingPeers []string
+
+    for id, state := range n.StateMap {
+        if id == n.ID {
+            continue
+        }
+        
+        totalPeers++
+        
+        // A peer is "updated" if it has a valid version >= our current version
+        if state.Version >= myVersion {
+            updatedPeers++
+        } else {
+            laggingPeers = append(laggingPeers, id)
+        }
+    }
+    n.stateLock.RUnlock()
+
+    // Handle the case where we have no peers yet
+    canAdvance := false
+    if totalPeers > 0 {
+        participation := float64(updatedPeers) / float64(totalPeers)
+        if participation >= 0.75 {
+            canAdvance = true
+        }
+    }
+
+    if canAdvance {
+        if currentData == "" || strings.HasPrefix(currentData, "Round") {
+            currentData = fmt.Sprintf("Round %d Payload", myVersion+1)
+        }
+        n.UpdateOwnData(currentData)
+        // fmt.Printf("[%s] 🚀 [%s] 75%% Threshold Met (%d/%d)! Advanced to Round %d\n",
+        //     getCurrentTimestamp(), n.ID, updatedPeers, totalPeers, myVersion+1)
+    } else {
+        // fmt.Printf("[%s] ⏳ [%s] Blocked at Round %d. Progress: %d/%d (Need 75%%). Waiting on: %v\n",
+        //     getCurrentTimestamp(), n.ID, myVersion, updatedPeers, totalPeers, laggingPeers)
+        n.refreshHeartbeat()
+    }
+}
+
 func (n *Node) StartGossiping(interval time.Duration, fanout int) {
 	for {
 		time.Sleep(interval)
 
 		// --- 1. VECTOR CLOCK EVALUATION ---
-		n.stateLock.RLock()
-		myState := n.StateMap[n.ID]
-		myVersion := myState.Version
-		currentData := myState.Data
-
-		canAdvance := true
-		var laggingPeers []string
-
-		// Check if min(V_new) >= myVersion
-		for id, state := range n.StateMap {
-			if id == n.ID {
-				continue
-			}
-			if state.Version < myVersion {
-				canAdvance = false
-				laggingPeers = append(laggingPeers, id)
-			}
-		}
-		n.stateLock.RUnlock()
-
-		// --- 2. ADVANCE ROUND OR WAIT ---
-		if canAdvance {
-			if currentData == "" || strings.HasPrefix(currentData, "Round") {
-				currentData = fmt.Sprintf("Round %d Payload", myVersion+1)
-			}
-			// This internally increments the Version mathematically confirming the round
-			n.UpdateOwnData(currentData)
-			fmt.Printf("[%s] 🚀 [%s] Math confirmation reached! Advanced to Round %d\n", getCurrentTimestamp(), n.ID, myVersion+1)
-		} else {
-			fmt.Printf("[%s] ⏳ [%s] Blocked at Round %d. Waiting on peers: %v\n", getCurrentTimestamp(), n.ID, myVersion, laggingPeers)
-		}
+		n.evaluateRoundProgress()
 
 		// --- 3. GOSSIP CURRENT STATE ---
 		n.stateLock.Lock()
@@ -325,7 +398,7 @@ func (n *Node) StartGossiping(interval time.Duration, fanout int) {
 		for k, v := range n.StateMap {
 			// Purge expired records so a permanently dead node doesn't block the cluster forever
 			if k != n.ID && v.ExpiresAt > 0 && now > v.ExpiresAt {
-				fmt.Printf("[%s] 🗑️ [%s] Record for %s expired. Removing from state map.\n", getCurrentTimestamp(), n.ID, k)
+				// fmt.Printf("[%s] 🗑️ [%s] Record for %s expired. Removing from state map.\n", getCurrentTimestamp(), n.ID, k)
 				delete(n.StateMap, k)
 				continue
 			}

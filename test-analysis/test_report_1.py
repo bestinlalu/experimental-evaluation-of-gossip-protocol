@@ -7,7 +7,7 @@ import statistics
 
 # --- CONFIGURATION ---
 DB_CONFIG = {
-    'host': '152.7.179.8',
+    'host': '152.7.178.142',
     'database': 'gossipdb',
     'user': 'root',
     'password': 'password',
@@ -70,10 +70,10 @@ def monitor_convergence():
             active_nodes = {row["node_address"] for row in cursor_nodes.fetchall()}
             total_active = len(active_nodes)
             
-            if total_active == 0:
-                print(f"[{time.strftime('%X')}] No active nodes detected. Waiting...")
-                time.sleep(POLL_INTERVAL)
-                continue
+            # if total_active == 0:
+            #     print(f"[{time.strftime('%X')}] No active nodes detected. Waiting...")
+            #     time.sleep(POLL_INTERVAL)
+            #     continue
 
             # 2. Poll new records since last_id
             query = """
