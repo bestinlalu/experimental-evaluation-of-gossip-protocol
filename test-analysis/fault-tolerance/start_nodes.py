@@ -3,15 +3,15 @@ import json
 import random
 
 # --- CONFIGURATION ---
-HOSTS           = ["152.7.179.8","152.7.179.108"]        # Single VM — use localhost
+HOSTS = ["152.7.178.142", "152.7.178.134", "152.7.178.151", "152.7.178.90"]        # Single VM — use localhost
                                        # Add "152.7.179.79" for 2-VM test
 START_PORT      = 6000
 END_PORT        = 8000
-NUM_NODES       = 5                    # Start with 4, scale to 100 later
+NUM_NODES       = 100                    # Start with 4, scale to 100 later
 PEERS_PER_NODE  = max(1, int(NUM_NODES * 0.3))  # 30% of previous nodes
 MANAGER_PORT    = 8082
 STRATEGY        = "PUSH"              # PUSH for this test
-KAFKA_BROKER    = "152.7.179.8:9092"
+KAFKA_BROKER    = "152.7.178.142:9092"
 TOPIC           = "gossip"
 URL             = "http://localhost:9090/action/start"
 
@@ -84,9 +84,9 @@ def start_cluster():
     print(f"   Topic         : {TOPIC}")
 
     # Save addresses to file so fault_tolerance_monitor knows which ports to watch
-    with open("/tmp/ft_cluster_addresses.json", "w") as f:
+    with open("./ft_cluster_addresses.json", "w") as f:
         json.dump(all_addresses, f)
-    print(f"\nNode addresses saved to /tmp/ft_cluster_addresses.json")
+    print(f"\nNode addresses saved to ./ft_cluster_addresses.json")
 
     # Fire the request
     print(f"\nSending START request to {URL}...")

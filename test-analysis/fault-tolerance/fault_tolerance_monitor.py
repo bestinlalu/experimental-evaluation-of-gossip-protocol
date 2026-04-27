@@ -6,7 +6,7 @@ from datetime import datetime
  
 # ── CONFIG ─────────────────────────────────────────────────────
 DB_CONFIG = {
-    'host':            '152.7.179.8',
+    'host':            '152.7.178.142',
     'database':        'gossipdb',
     'user':            'root',
     'password':        'password',
@@ -62,9 +62,10 @@ def get_neighbors_from_gossip(cursor):
     Returns dict: { forwarderAddress → [neighbor1, neighbor2, ...] }
     """
     cursor.execute("""
-        SELECT forwarderAddress, neighbors
+        SELECT forwarderAddress, activeNeighbors, inactiveNeighbors
         FROM GossipRecord
-        WHERE neighbors IS NOT NULL AND neighbors != ''
+        WHERE activeNeighbors IS NOT NULL AND activeNeighbors != ''
+            AND inactiveNeighbors IS NOT NULL AND inactiveNeighbors != ''
         ORDER BY forwarderTimestamp DESC
         LIMIT 1000
     """)
@@ -72,8 +73,8 @@ def get_neighbors_from_gossip(cursor):
     seen = {}
     for row in rows:
         fwd = row['forwarderAddress']
-        if fwd not in seen and row['neighbors']:
-            seen[fwd] = [n.strip() for n in row['neighbors'].split(',') if n.strip()]
+        if fwd not in seen and row['activeNeighbors']:
+            seen[fwd] = [n.strip() for n in row['activeNeighbors'].split(',') if n.strip()]
     return seen
  
 # ── STATE TRACKER ──────────────────────────────────────────────

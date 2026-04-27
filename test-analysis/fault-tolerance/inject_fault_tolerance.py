@@ -2,7 +2,7 @@ import subprocess, requests, json
 
 # ── CONFIG ─────────────────────────────────────────────────────
 KILL_URL     = "http://localhost:9090/action/kill"
-KAFKA_BROKER = "152.7.179.8:9092"
+KAFKA_BROKER = "152.7.178.142:9092"
 TOPIC        = "gossip"
 MANAGER_PORT = 8082
 
@@ -45,7 +45,7 @@ def kill_node(active_nodes, strategy="PUSH"):
     kill_port = int(input("\n  Enter port to kill: ").strip())
     kill_host = next(
         (n.split(":")[0] for n in active_nodes if n.split(":")[1] == str(kill_port)),
-        "152.7.177.162"
+        "152.7.178.142"
     )
     print(f"  🔍 Node-{kill_port} found on host: {kill_host}")
 
@@ -65,5 +65,12 @@ def kill_node(active_nodes, strategy="PUSH"):
 
 # Run standalone if needed
 if __name__ == "__main__":
-    port, ok = kill_node(active_nodes=set(), strategy="PUSH")
+    input_file = "ft_cluster_addresses.json"
+    try:
+        with open(input_file, "r") as f:
+            active_nodes = json.load(f)
+    except Exception as e:
+        print(f"Error reading {input_file}: {e}")
+        active_nodes = []
+    port, ok = kill_node(active_nodes=set(active_nodes), strategy="PUSH")
     print(f"Killed port {port} — success={ok}")

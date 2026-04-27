@@ -3,7 +3,7 @@ from mysql.connector import Error
 
 # --- CONFIGURATION ---
 DB_CONFIG = {
-    'host': '152.7.179.8',
+    'host': '152.7.178.142',
     'database': 'gossipdb',
     'user': 'root',
     'password': 'password',
